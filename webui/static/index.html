@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kanban</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Top status bar -->
+    <div id="top-bar">
+      <span id="project-name">📋 Loading...</span>
+      <span id="card-count"></span>
+      <div id="search-input" class="hidden">
+        <input type="text" id="search-field" placeholder="Search cards..." autofocus>
+      </div>
+    </div>
+
+    <!-- Main 3-panel area -->
+    <div id="main">
+      <!-- Panel 1: Columns (left) -->
+      <div id="columns-panel" class="panel">
+        <div class="panel-header">Columns</div>
+        <div id="columns-list"></div>
+      </div>
+
+      <!-- Panel 2: Cards (center) -->
+      <div id="cards-panel" class="panel">
+        <div class="panel-header" id="cards-title">Loading...</div>
+        <div id="cards-list"></div>
+      </div>
+
+      <!-- Panel 3: Detail (right) -->
+      <div id="detail-panel" class="panel">
+        <div class="panel-header">Detail</div>
+        <div id="detail-content">
+          <p class="empty-hint">No card selected</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom status bar -->
+    <div id="bottom-bar">
+      <span id="focus-indicator">Focus: Cards</span>
+      <span>| ↑↓ Navigate | Enter Focus | m Move | e Edit | D Delete | P Project | / Search | q Quit</span>
+    </div>
+
+    <!-- Move modal -->
+    <div id="move-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-title">Move to...</div>
+        <div id="move-columns"></div>
+      </div>
+    </div>
+
+    <!-- Delete confirm modal -->
+    <div id="delete-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-title">Delete card?</div>
+        <p id="delete-card-title"></p>
+        <div id="delete-confirm-buttons"></div>
+      </div>
+    </div>
+
+    <!-- Project picker modal -->
+    <div id="project-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-title">Switch Project</div>
+        <div id="project-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

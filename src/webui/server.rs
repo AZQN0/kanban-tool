@@ -61,14 +61,37 @@ async fn build_app(app_state: AppState) -> Router {
         .layer(TraceLayer::new_for_http())
 }
 
+/// Get the static files directory.
+/// Checks: CWD/webui/static/, then binary-dir/../../webui/static/.
+pub fn static_dir() -> PathBuf {
+    // Check CWD first (when run from project root)
+    let cwd_candidate = PathBuf::from("webui/static");
+    if cwd_candidate.exists() {
+        return cwd_candidate;
+    }
+    
+    // Check relative to binary (when run from a project directory)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let candidate = parent.join("../../webui/static");
+            if let Ok(canonical) = candidate.canonicalize() {
+                if canonical.exists() {
+                    return canonical;
+                }
+            }
+        }
+    }
+    
+    // Fallback
+    PathBuf::from("webui/static")
+}
+
 /// Serve static files from webui/static/.
 async fn static_file(
     axum::extract::Path(file): axum::extract::Path<String>,
 ) -> Response {
     use axum::http::header;
-    use std::path::PathBuf;
-    
-    let path = PathBuf::from("webui/static").join(&file);
+    let path = static_dir().join(&file);
     
     if !path.exists() {
         return (StatusCode::NOT_FOUND, "File not found".to_string()).into_response();
@@ -90,9 +113,7 @@ async fn static_file(
 /// Root handler — serve index.html.
 async fn root_handler() -> Response {
     use axum::http::header;
-    use std::path::PathBuf;
-    
-    let path = PathBuf::from("webui/static/index.html");
+    let path = static_dir().join("index.html");
     
     if !path.exists() {
         return (StatusCode::SERVICE_UNAVAILABLE, "Frontend files not found.".to_string()).into_response();
