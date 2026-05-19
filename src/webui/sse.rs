@@ -5,6 +5,8 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 
+use super::api::AppState;
+
 /// An SSE event sent to connected browsers.
 #[derive(Debug, Clone, Serialize)]
 pub struct ServerSentEvent {
@@ -46,24 +48,12 @@ impl ServerSentEvent {
     }
 }
 
-/// Shared state for SSE.
-pub struct AppState {
-    pub broadcaster: broadcast::Sender<ServerSentEvent>,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        let (tx, _) = broadcast::channel(100);
-        Self { broadcaster: tx }
-    }
-}
-
 /// SSE endpoint handler — serves `text/event-stream` to clients.
 pub async fn sse_handler(
-    Extension(app): Extension<AppState>,
+    Extension(state): Extension<AppState>,
 ) -> Response {
     let stream = async_stream::stream! {
-        let mut rx = app.broadcaster.subscribe();
+        let mut rx = state.broadcaster.subscribe();
         loop {
             match rx.recv().await {
                 Ok(sse_event) => {
