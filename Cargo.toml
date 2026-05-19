@@ -17,6 +17,8 @@ anyhow = "1"
 ratatui = "0.29"
 crossterm = "0.28"
 pulldown-cmark = "0.11"
-mcp-server = { package = "rust-mcp-sdk", version = "0.9" }
+rust-mcp-sdk = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+async-trait = "0.1"
 console = "0.15"
 fallible-streaming-iterator = "0.1"

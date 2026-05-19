@@ -103,10 +103,19 @@ fn main() -> Result<()> {
             cli::search::search(&args)?;
         }
         Commands::Board => {
-            println!("TUI not yet implemented. Use `kanban list` or `kanban create` for now.");
+            let project_path = std::fs::canonicalize(".")
+                .context("Cannot resolve current directory")?;
+            tui::app::run(project_path)?;
         }
         Commands::Server => {
-            println!("MCP server not yet implemented. Use CLI commands for now.");
+            println!("Starting Kanban MCP server on stdio...");
+            let rt = tokio::runtime::Runtime::new()?
+                .block_on(async {
+                    mcp::server::run_server().await
+                });
+            if let Err(e) = rt {
+                eprintln!("MCP server error: {}", e.rpc_error_message().unwrap_or(&e.to_string()));
+            }
         }
     }
 

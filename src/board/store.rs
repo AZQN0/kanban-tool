@@ -23,7 +23,7 @@ fn parse_dt(s: &str) -> DateTime<Utc> {
 }
 
 pub struct Store {
-    conn: Connection,
+    pub conn: Connection,
 }
 
 impl Store {
@@ -240,14 +240,17 @@ impl Store {
                       _labels: Option<&[String]>, sort_by: &str) -> Result<Vec<Card>> {
         let mut query = String::from("SELECT id, board_id, column_id, title, description, priority, labels, subtasks, parent_card_id, card_file, created_at, updated_at FROM cards WHERE board_id = ?1");
         let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(board_id.to_string())];
+        let mut param_idx: u32 = 2;
         
         if let Some(c) = column_id {
-            query.push_str(" AND column_id = ?2");
+            query.push_str(&format!(" AND column_id = ?{}", param_idx));
             values.push(Box::new(c.to_string()));
+            param_idx += 1;
         }
         if let Some(p) = priority {
-            query.push_str(" AND priority = ?3");
+            query.push_str(&format!(" AND priority = ?{}", param_idx));
             values.push(Box::new(p.to_string()));
+            param_idx += 1;
         }
         
         match sort_by {
