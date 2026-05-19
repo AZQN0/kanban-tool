@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 
 mod board;
@@ -51,12 +51,23 @@ struct SearchArgs {
 
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
-    Init { path: String },
+    /// Initialize a new kanban board for a project
+    Init {
+        /// Path to the project directory (default: current directory)
+        #[arg(default_value = ".")]
+        path: String,
+    },
+    /// List cards with optional filters
     List(ListArgs),
+    /// Create a new card
     Create(CreateArgs),
+    /// Move a card to a different column
     Move(MoveArgs),
+    /// Search cards by query
     Search(SearchArgs),
+    /// Launch the terminal UI
     Board,
+    /// Start the MCP server for coding agents
     Server,
 }
 
@@ -69,28 +80,35 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Init { path } => {
-            todo!("Task 4: Implement init")
+            let project_path = std::fs::canonicalize(&path)
+                .context(format!("Cannot resolve path: {}", path))?;
+            let board = kanban::init::init_board(&project_path)?;
+            println!("Initialized kanban board at: {}", project_path.display());
+            println!("  Board ID: {}", board.id);
+            println!("  Columns:  {}", board.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "));
         }
         Commands::List(args) => {
-            todo!("Task 5: Implement list")
+            cli::list::list(&args)?;
         }
         Commands::Create(args) => {
-            todo!("Task 5: Implement create")
+            cli::create::create(&args)?;
         }
         Commands::Move(args) => {
-            todo!("Task 5: Implement move")
+            cli::transition::transition(&args)?;
         }
         Commands::Search(args) => {
-            todo!("Task 5: Implement search")
+            cli::search::search(&args)?;
         }
         Commands::Board => {
-            todo!("Task 7: Launch TUI")
+            println!("TUI not yet implemented. Use `kanban list` or `kanban create` for now.");
         }
         Commands::Server => {
-            todo!("Task 6: Launch MCP server")
+            println!("MCP server not yet implemented. Use CLI commands for now.");
         }
     }
+
+    Ok(())
 }
