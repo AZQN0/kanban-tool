@@ -49,6 +49,31 @@ struct SearchArgs {
     project: Option<String>,
 }
 
+#[derive(clap::Args, Debug)]
+struct GetArgs {
+    card_id: String,
+}
+
+#[derive(clap::Args, Debug)]
+struct DeleteArgs {
+    card_id: String,
+}
+
+#[derive(clap::Args, Debug)]
+struct UpdateArgs {
+    card_id: String,
+    #[arg(long)]
+    title: Option<String>,
+    #[arg(long)]
+    description: Option<String>,
+    #[arg(long)]
+    column: Option<String>,
+    #[arg(long, value_parser = ["backlog", "low", "medium", "high", "urgent"])]
+    priority: Option<String>,
+    #[arg(long)]
+    label: Option<Vec<String>>,
+}
+
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
     /// Initialize a new kanban board for a project
@@ -65,6 +90,12 @@ enum Commands {
     Move(MoveArgs),
     /// Search cards by query
     Search(SearchArgs),
+    /// Get a card by ID
+    Get(GetArgs),
+    /// Update a card's fields
+    Update(UpdateArgs),
+    /// Delete a card
+    Delete(DeleteArgs),
     /// Launch the terminal UI
     Board,
     /// Start the MCP server for coding agents
@@ -101,6 +132,15 @@ fn main() -> Result<()> {
         }
         Commands::Search(args) => {
             cli::search::search(&args)?;
+        }
+        Commands::Get(args) => {
+            cli::get::get(&args)?;
+        }
+        Commands::Update(args) => {
+            cli::update::update(&args)?;
+        }
+        Commands::Delete(args) => {
+            cli::delete::delete(&args)?;
         }
         Commands::Board => {
             let project_path = std::fs::canonicalize(".")

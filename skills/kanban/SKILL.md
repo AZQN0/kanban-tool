@@ -86,6 +86,35 @@ kanban move <CARD_ID> <COLUMN>
 
 Updates both the database and the markdown file.
 
+### Get a Card
+
+```bash
+kanban get <CARD_ID>
+```
+
+Prints full card details (title, column, priority, labels, description, timestamps).
+
+### Update a Card
+
+```bash
+kanban update <CARD_ID> \
+  --title "New title" \
+  --description "New description" \
+  --column in_progress \
+  --priority urgent \
+  --label backend
+```
+
+Update any combination of fields. All options are optional — only specify the fields you want to change.
+
+### Delete a Card
+
+```bash
+kanban delete <CARD_ID>
+```
+
+Removes the card from both SQLite and the markdown file system.
+
 ### Search Cards
 
 ```bash
@@ -152,7 +181,20 @@ kanban move <CARD_ID> review         # Ready for review
 kanban move <CARD_ID> done           # Completed
 ```
 
-### 5. Manage with MCP
+### 5. Inspect and Update Cards
+
+```bash
+# Get full details of a card
+kanban get <CARD_ID>
+
+# Update a card's fields
+kanban update <CARD_ID> --priority urgent --description "Critical issue"
+
+# Remove a card no longer needed
+kanban delete <CARD_ID>
+```
+
+### 6. Manage with MCP
 
 Use the MCP server tools programmatically. Example:
 
@@ -165,10 +207,10 @@ Use the MCP server tools programmatically. Example:
 
 ## Tips
 
-- **Card IDs** are UUIDs returned by `kanban create`. Keep them handy for `move` and other operations.
+- **Card IDs** are UUIDs returned by `kanban create`. Keep them handy for `move`, `get`, `update`, `delete`, and other operations.
 - **Markdown cards** are human-editable — you can edit `.kanban/cards/<id>.md` directly and the DB stays in sync on next read.
 - **Multi-project** — use `--project` flag or `kanban board` (TUI) to switch between boards.
-- **Labels** — add multiple with repeated `--label` flags for categorization.
+- **Labels** — add multiple with repeated `--label` flags for categorization. Multiple labels filter as AND (card must have all specified labels).
 - **Priority ordering** — `urgent` > `high` > `medium` > `low` > `backlog`.
 
 ## Card File Format

@@ -1,8 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use rusqlite_migration::Migrations;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::card::{Card, Priority};
 use super::column::Column;
@@ -27,12 +28,44 @@ pub struct Store {
 }
 
 impl Store {
+    /// Open the database, retrying once on transient WAL lock errors.
     pub fn open(path: &Path) -> Result<Self> {
+        match Self::open_inner(path) {
+            Ok(store) => Ok(store),
+            Err(e) => {
+                // WAL lock is transient — retry once after a short delay
+                std::thread::sleep(Duration::from_millis(200));
+                Self::open_inner(path)
+                    .map_err(|_| anyhow!("Database temporarily locked (WAL lock). Retry later. Original error: {}", e))
+            }
+        }
+    }
+
+    fn open_inner(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)
             .context(format!("Failed to open database at {:?}", path))?;
+        // Set WAL mode for better concurrency (if not already WAL)
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
         let mut store = Self { conn };
         store.apply_migrations()?;
         Ok(store)
+    }
+
+    /// Open the database with WAL mode retry for concurrent access scenarios.
+    pub fn open_with_retry(path: &Path) -> Result<Self> {
+        let mut last_err = None;
+        for attempt in 1..=5 {
+            match Self::open_inner(path) {
+                Ok(store) => return Ok(store),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < 5 {
+                        std::thread::sleep(Duration::from_millis(100 * attempt as u64));
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow!("Failed to open database after retries")))
     }
 
     fn apply_migrations(&mut self) -> Result<()> {
@@ -178,7 +211,7 @@ impl Store {
         })
     }
 
-    pub fn update_card(&mut self, _card_id: &str, title: Option<&str>, description: Option<&str>,
+    pub fn update_card(&mut self, card_id: &str, title: Option<&str>, description: Option<&str>,
                        column_id: Option<&str>, priority: Option<&str>, labels: Option<&[String]>) -> Result<()> {
         let mut updates: Vec<String> = Vec::new();
         let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -209,7 +242,9 @@ impl Store {
         }
         
         let query = format!("UPDATE cards SET {} WHERE id = ?", updates.join(", "));
-        self.conn.execute(&query, rusqlite::params_from_iter(values.iter().map(|v| v.as_ref())))
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = values;
+        params.push(Box::new(card_id.to_string()));
+        self.conn.execute(&query, rusqlite::params_from_iter(params.iter().map(|v| v.as_ref())))
             .context("Failed to update card")?;
         Ok(())
     }
@@ -237,7 +272,7 @@ impl Store {
     }
 
     pub fn list_cards(&self, board_id: &str, column_id: Option<&str>, priority: Option<&str>,
-                      _labels: Option<&[String]>, sort_by: &str) -> Result<Vec<Card>> {
+                      labels: Option<&[String]>, sort_by: &str) -> Result<Vec<Card>> {
         let mut query = String::from("SELECT id, board_id, column_id, title, description, priority, labels, subtasks, parent_card_id, card_file, created_at, updated_at FROM cards WHERE board_id = ?1");
         let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(board_id.to_string())];
         let mut param_idx: u32 = 2;
@@ -251,6 +286,18 @@ impl Store {
             query.push_str(&format!(" AND priority = ?{}", param_idx));
             values.push(Box::new(p.to_string()));
             param_idx += 1;
+        }
+        if let Some(label_list) = labels {
+            if !label_list.is_empty() {
+                // Use LIKE on the JSON text column to match label names.
+                // Labels are stored as JSON arrays like ["backend","security"],
+                // so we search for "\"<label>\"" patterns.
+                for label in label_list {
+                    query.push_str(&format!(" AND labels LIKE ?{}", param_idx));
+                    values.push(Box::new(format!("%\"{}\"%", label)));
+                    param_idx += 1;
+                }
+            }
         }
         
         match sort_by {
