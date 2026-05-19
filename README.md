@@ -250,6 +250,10 @@ cargo test
 cargo clippy
 ```
 
+## ⚠️ Disclaimer
+
+> This project was **entirely vibecoded with [Qwen3.6-35B-A3B-GGUF](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-GGUF)** — an LLM. The code works, but treat it like a chatbot wrote it: review before using in production, don't expect architecture textbooks, and enjoy the vibes.
+
 ## Known Limitations
 
 - `kanban list --label` does not filter by label yet (SQL parameter not wired up)
