@@ -18,7 +18,19 @@ ratatui = "0.29"
 crossterm = "0.28"
 pulldown-cmark = "0.11"
 rust-mcp-sdk = "0.9"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 async-trait = "0.1"
 console = "0.15"
 fallible-streaming-iterator = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+tokio-stream = "0.1"
+
+# WebUI (optional)
+axum = { version = "0.7", optional = true }
+tower-http = { version = "0.5", features = ["fs", "trace"], optional = true }
+mime_guess = { version = "2", optional = true }
+
+[features]
+default = []
+webui = ["dep:axum", "dep:tower-http", "dep:mime_guess"]

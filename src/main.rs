@@ -7,6 +7,7 @@ mod markdown;
 mod mcp;
 mod cli;
 mod tui;
+mod webui;
 
 #[derive(clap::Args, Debug)]
 struct ListArgs {
@@ -98,6 +99,8 @@ enum Commands {
     Delete(DeleteArgs),
     /// Launch the terminal UI
     Board,
+    /// Start the WebUI in the browser
+    WebUI,
     /// Start the MCP server for coding agents
     Server,
 }
@@ -146,6 +149,14 @@ fn main() -> Result<()> {
             let project_path = std::fs::canonicalize(".")
                 .context("Cannot resolve current directory")?;
             tui::app::run(project_path)?;
+        }
+        Commands::WebUI => {
+            let project_path = std::fs::canonicalize(".")
+                .context("Cannot resolve current directory")?;
+            #[cfg(feature = "webui")]
+            webui::server::run(project_path)?;
+            #[cfg(not(feature = "webui"))]
+            eprintln!("WebUI feature not enabled. Build with --features webui");
         }
         Commands::Server => {
             println!("Starting Kanban MCP server on stdio...");
