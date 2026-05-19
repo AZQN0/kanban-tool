@@ -1,8 +1,10 @@
+#[allow(unused_imports)]
 use axum::response::sse::Event;
 use axum::response::{IntoResponse, Response, Sse};
 use axum::Extension;
 use serde::Serialize;
 use tokio::sync::broadcast;
+#[allow(unused_imports)]
 use tokio_stream::StreamExt;
 
 use super::api::AppState;

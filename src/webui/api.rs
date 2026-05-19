@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json};
@@ -214,7 +215,7 @@ pub async fn create_card(
     
     // Create card in DB
     let card_file = format!("{}.md", uuid::Uuid::new_v4());
-    let mut card = Card::new(
+    let card = Card::new(
         &board.id,
         &target_col.id,
         &body.title,
@@ -249,9 +250,10 @@ pub async fn update_card(
     let mut store = open_store(&app)?;
     let board = get_board(&app)?;
     
-    // Get existing card
-    let card = store.get_card(&card_id)
-        .map_err(|e| ApiError::not_found(format!("Card not found: {}", e)))?;
+    // Verify card exists
+    if store.get_card(&card_id).is_err() {
+        return Err(ApiError::not_found(format!("Card not found: {card_id}")));
+    }
     
     // Resolve optional column
     let new_col_id: Option<&str> = if let Some(ref col_name) = body.column {
