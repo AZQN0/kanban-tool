@@ -690,7 +690,7 @@ The server registers tools with the MCP framework. Each `tools/call` request inc
 
 ---
 
-### Task 7: TUI Interface
+### Task 7: TUI Interface ✅ COMPLETE
 
 **Goal:** Implement the ratatui terminal UI with a board view, card detail pane, and keyboard navigation.
 

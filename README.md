@@ -216,9 +216,3 @@ cargo clippy
 ## ⚠️ Disclaimer
 
 > This project was **entirely vibecoded with [Qwen3.6-35B-A3B-GGUF](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-GGUF)**. The code works, but use at your own risk.
-
-## Known Limitations
-
-- `kanban list --label` does not filter by label yet (SQL parameter not wired up)
-- No `delete`/`get`/`update` CLI subcommands — use `kanban server` (MCP) or direct markdown edits
-- SQLite WAL lock may fail if multiple `kanban` processes start simultaneously (transient)
