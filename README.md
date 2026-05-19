@@ -42,39 +42,45 @@ cd kanban-tool/.worktrees/kanban-tool
 cargo build --release
 ```
 
-## AI Agent Skill
-
-This project includes an agent skill (`skills/kanban/SKILL.md`) that lets AI coding agents interact with kanban boards. The skill covers:
-
-- All CLI commands (`init`, `create`, `list`, `move`, `search`)
-- MCP server tool usage
-- Common workflows (setup, create, track, move)
-- Card file format reference
-
-Point your agent's skill directory at `skills/` in this repo.
-
-## Usage — CLI
-
-### Initialize a Board
+## Quick Start
 
 ```bash
-kanban init [PATH]
+# 1. Initialize a board
+cd my-project && kanban init
+
+# 2. Create some cards
+kanban create --title "Fix login bug" --priority high
+kanban create --title "Write tests" --priority medium --label backend
+
+# 3. List everything
+kanban list
+
+# 4. Move a card
+kanban move <CARD_ID> in_progress
 ```
 
-Creates a `.kanban/` directory with a SQLite database, `cards/` folder, and `columns/` folder. Default columns: `backlog`, `todo`, `in_progress`, `review`, `done`.
+## CLI Reference
 
-### Create a Card
+### `kanban init [PATH]`
+
+Initialize a kanban board in the specified directory (defaults to `.`). Creates `.kanban/` with SQLite DB, `cards/` folder, and default columns: `backlog`, `todo`, `in_progress`, `review`, `done`.
+
+### `kanban create [OPTIONS] --title <TITLE>`
+
+Create a new card. **Required:** `--title`. Optional: `--description`, `--project`, `--column` (default: `todo`), `--priority` (default: `backlog`), `--label` (repeat for multiple).
 
 ```bash
-kanban create --title "Fix login bug" \
-  --description "User reports login timeout after 5 minutes" \
+kanban create --title "Implement login" \
+  --description "POST /api/auth/login with JWT" \
   --priority high \
   --column todo \
   --label backend \
-  --label bug
+  --label security
 ```
 
-### List Cards
+### `kanban list [OPTIONS]`
+
+List cards with optional filters.
 
 ```bash
 kanban list                          # All cards
@@ -84,38 +90,23 @@ kanban list --label security         # Filter by label
 kanban list --project /path/to/proj  # Another project's board
 ```
 
-### Move a Card
+**Priority values:** `backlog`, `low`, `medium`, `high`, `urgent`
+**Column values:** `backlog`, `todo`, `in_progress`, `review`, `done`
 
-```bash
-kanban move <CARD_ID> in_progress
-```
+### `kanban move <CARD_ID> <COLUMN>`
 
-Moves the card in both the database and the markdown file.
+Move a card to a different column. Updates both the database and the markdown file.
 
-### Search Cards
+### `kanban search [OPTIONS] <QUERY>`
+
+Search across card titles and descriptions.
 
 ```bash
 kanban search "login"
-kanban search "auth" --project /path/to/proj
+kanban search "auth" --project /path/to/project
 ```
 
-Searches across card titles and descriptions.
-
-### Terminal UI
-
-```bash
-kanban board
-```
-
-### MCP Server
-
-```bash
-kanban server
-```
-
-Starts an MCP server over stdio with 8 tools. See [MCP Tools](#mcp-tools) below.
-
-## Usage — Terminal UI
+## Terminal UI
 
 Start with `kanban board` (run from within an initialized project).
 
@@ -140,65 +131,54 @@ Start with `kanban board` (run from within an initialized project).
 
 | Key | Action |
 |-----|--------|
-| `j` / `↓` | Move selection down (cards), down column (column list) |
-| `k` / `↑` | Move selection up (cards), up column (column list) |
+| `j` / `↓` | Move selection down |
+| `k` / `↑` | Move selection up |
 | `h` / `←` | Focus previous panel |
 | `l` / `→` | Focus next panel |
-| `Enter` | Focus selected card in detail pane / Unfocus detail |
-| `Esc` | Cancel current mode / Unfocus detail |
-| `m` | Move selected card (popup: `b`acklog, `t`odo, `i`n_progress, `r`eview, `d`one) |
+| `Enter` | Focus selected card in detail / Unfocus |
+| `Esc` | Cancel mode / Unfocus detail |
+| `m` | Move card (popup: `b`acklog, `t`odo, `i`n_progress, `r`eview, `d`one) |
 | `e` | Open card in `$EDITOR` |
 | `D` | Delete selected card |
-| `P` | Switch project (shows project picker) |
-| `/` | Start search (type query, Enter to search) |
+| `P` | Switch project (project picker) |
+| `/` | Start search |
 | `q` | Quit |
 
-## Usage — MCP Server
+## MCP Server
 
-The MCP server exposes 8 tools over stdio.
+Start with `kanban server` (runs over stdio). Exposes 8 tools:
 
-### Tools
+| Tool | Required Args | Description |
+|------|---------------|-------------|
+| `create_card` | `project`, `title` | Create a new card |
+| `get_card` | `card_id` | Get full card data |
+| `update_card` | `card_id` | Update card fields |
+| `delete_card` | `card_id` | Delete a card |
+| `list_cards` | — | List cards (all optional filters) |
+| `transition_card` | `card_id`, `column` | Move card to column |
+| `search_cards` | `query` | Search title/description |
+| `manage_board` | `action` | Init board, add/remove columns |
 
-| Tool | Description | Required Args |
-|------|-------------|---------------|
-| `create_card` | Create a new card | `project`, `title` |
-| `get_card` | Get a card by ID | `card_id` |
-| `update_card` | Update card fields | `card_id` |
-| `delete_card` | Delete a card by ID | `card_id` |
-| `list_cards` | List cards with filters | — |
-| `transition_card` | Move card to column | `card_id`, `column` |
-| `search_cards` | Search across title/description | `query` |
-| `manage_board` | Init board, add/remove columns | `action` |
+### Example: Create via MCP
 
-### Example: Create a Card via MCP
-
-```
+```json
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
   "name":"create_card",
   "arguments":{"project":"/path/to/proj","title":"New feature","priority":"medium"}
 }}
 ```
 
-### Example: List Cards via MCP
-
-```
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
-  "name":"list_cards",
-  "arguments":{"project":"/path/to/proj","column":"todo","priority":"high"}
-}}
-```
-
 ## Data Model
 
-### Card (Markdown File)
+### Card File
 
 Each card is stored as `.kanban/cards/<id>.md`:
 
 ```markdown
 ---
-id: uuid-v4
-board_id: uuid-v4
-column_id: uuid-v4
+id: <uuid>
+board_id: <uuid>
+column_id: <uuid>
 title: Card title
 priority: low|medium|high|urgent|backlog
 labels: []
@@ -211,52 +191,27 @@ updated_at: 2026-05-19T...
 Card description body (markdown)
 ```
 
-### SQLite Database
-
-Stored at `.kanban/kanban.db`. Tables: `boards`, `columns`, `cards`, `comments`.
-
 ### Project Structure
 
 ```
 my-project/
 ├── .kanban/
-│   ├── kanban.db          # SQLite database
-│   ├── cards/             # Markdown card files
-│   │   ├── <uuid>.md
-│   │   └── ...
-│   └── columns/           # Column definitions (JSON)
-│       └── <uuid>.json
-└── ...
+│   ├── kanban.db          # SQLite database (tables: boards, columns, cards, comments)
+│   ├── cards/             # Markdown card files (one per card)
+│   └── columns/           # Column definitions
 ```
+
+## AI Agent Skill
+
+This project ships with an AI agent skill (`skills/kanban/SKILL.md`) covering all CLI commands, MCP tool usage, common workflows, and the card file format. Point your agent's skill directory at `skills/` in this repo.
 
 ## Development
 
-### Build
-
 ```bash
 cargo build
-cargo build --release
-```
-
-### Run Tests
-
-```bash
 cargo test
-```
-
-### Run Linter
-
-```bash
 cargo clippy
 ```
-
-## ⚠️ Disclaimer
-
-> This project was **entirely vibecoded with [Qwen3.6-35B-A3B-GGUF](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-GGUF)** — an LLM. The code works, but treat it like a chatbot wrote it: review before using in production, don't expect architecture textbooks, and enjoy the vibes.
-
-## ⚠️ Disclaimer
-
-> This project was **entirely vibecoded with [Qwen3.6-35B-A3B-GGUF](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-GGUF)**. The code works, but use at your own risk.
 
 ## ⚠️ Disclaimer
 
@@ -265,5 +220,5 @@ cargo clippy
 ## Known Limitations
 
 - `kanban list --label` does not filter by label yet (SQL parameter not wired up)
-- No `delete`/`get`/`update` CLI subcommands — use `kanban server` (MCP) or direct markdown file edits
+- No `delete`/`get`/`update` CLI subcommands — use `kanban server` (MCP) or direct markdown edits
 - SQLite WAL lock may fail if multiple `kanban` processes start simultaneously (transient)
