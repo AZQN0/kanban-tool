@@ -254,6 +254,14 @@ cargo clippy
 
 > This project was **entirely vibecoded with [Qwen3.6-35B-A3B-GGUF](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-GGUF)** — an LLM. The code works, but treat it like a chatbot wrote it: review before using in production, don't expect architecture textbooks, and enjoy the vibes.
 
+## ⚠️ Disclaimer
+
+> This project was **entirely vibecoded with [Qwen3.6-35B-A3B-GGUF](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-GGUF)**. The code works, but use at your own risk.
+
+## ⚠️ Disclaimer
+
+> This project was **entirely vibecoded with [Qwen3.6-35B-A3B-GGUF](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-GGUF)**. The code works, but use at your own risk.
+
 ## Known Limitations
 
 - `kanban list --label` does not filter by label yet (SQL parameter not wired up)
