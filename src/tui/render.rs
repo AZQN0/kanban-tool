@@ -238,9 +238,24 @@ fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(format!("{marker} {label:<12} {value}"))
     };
 
-    let description = truncate_multiline(&editor.description, 52);
-    let labels = truncate(&editor.labels_input, 52);
-    let title = truncate(&editor.title, 52);
+    let description = editor_display_value(
+        &editor.description,
+        editor.description_cursor,
+        editor.field == EditorField::Description,
+        52,
+    );
+    let labels = editor_display_value(
+        &editor.labels_input,
+        editor.labels_cursor,
+        editor.field == EditorField::Labels,
+        52,
+    );
+    let title = editor_display_value(
+        &editor.title,
+        editor.title_cursor,
+        editor.field == EditorField::Title,
+        52,
+    );
     let priority = editor.priority.to_string();
 
     let lines = vec![
@@ -249,7 +264,8 @@ fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
         field_line(EditorField::Priority, "Priority", priority),
         field_line(EditorField::Labels, "Labels", labels),
         Line::from(""),
-        Line::from(" Tab/Shift+Tab Field  ←/→ Priority  Enter Save"),
+        Line::from(" Tab/Shift+Tab Field  ←/→ Cursor/Priority"),
+        Line::from(" Home/End Jump  Del Delete  Enter Save/Newline"),
         Line::from(" Ctrl+S Save  Esc Cancel"),
     ];
 
@@ -440,6 +456,30 @@ fn truncate(s: &str, max_width: usize) -> String {
 
 fn truncate_multiline(s: &str, max_width: usize) -> String {
     truncate(&s.replace('\n', " / "), max_width)
+}
+
+fn editor_display_value(value: &str, cursor: usize, active: bool, max_width: usize) -> String {
+    if !active {
+        return truncate_multiline(value, max_width);
+    }
+
+    let mut rendered = String::new();
+    let mut inserted_cursor = false;
+    for (idx, ch) in value.chars().enumerate() {
+        if idx == cursor {
+            rendered.push('█');
+            inserted_cursor = true;
+        }
+        if ch == '\n' {
+            rendered.push_str(" / ");
+        } else {
+            rendered.push(ch);
+        }
+    }
+    if !inserted_cursor {
+        rendered.push('█');
+    }
+    truncate(&rendered, max_width)
 }
 
 /// Center a rectangle within another.
@@ -679,9 +719,12 @@ mod tests {
             card_id: "card-1".to_string(),
             field: super::super::app::EditorField::Title,
             title: "Edit me".to_string(),
+            title_cursor: "Edit me".chars().count(),
             description: "Description text".to_string(),
+            description_cursor: "Description text".chars().count(),
             priority: Priority::High,
             labels_input: "ui, audit".to_string(),
+            labels_cursor: "ui, audit".chars().count(),
             dirty: false,
         });
 
@@ -721,6 +764,40 @@ mod tests {
         assert!(
             rendered.contains("Esc Cancel"),
             "missing cancel hint: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_editor_modal_shows_cursor_in_active_text_field() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        app.mode = Mode::Editing;
+        app.editor = Some(super::super::app::EditorState {
+            card_id: "card-1".to_string(),
+            field: super::super::app::EditorField::Title,
+            title: "Edit me".to_string(),
+            title_cursor: 4,
+            description: "Description text".to_string(),
+            description_cursor: "Description text".chars().count(),
+            priority: Priority::High,
+            labels_input: "ui, audit".to_string(),
+            labels_cursor: "ui, audit".chars().count(),
+            dirty: false,
+        });
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            rendered.contains("Edit█ me"),
+            "missing cursor at title insertion point: {rendered}"
         );
     }
 }

@@ -16,20 +16,53 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             KeyCode::Char('s') if modifiers == KeyModifiers::CONTROL => {
                 app.save_editor()?;
             }
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Tab => {
                 app.editor_next_field(true);
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::BackTab => {
+                app.editor_next_field(false);
+            }
+            KeyCode::Down if app.editor_move_description_line(true) => {}
+            KeyCode::Down => {
+                app.editor_next_field(true);
+            }
+            KeyCode::Up if app.editor_move_description_line(false) => {}
+            KeyCode::Up => {
                 app.editor_next_field(false);
             }
             KeyCode::Left => {
-                app.editor_cycle_priority(false);
+                if app
+                    .editor
+                    .as_ref()
+                    .is_some_and(|editor| editor.field == EditorField::Priority)
+                {
+                    app.editor_cycle_priority(false);
+                } else {
+                    app.editor_move_cursor(false);
+                }
             }
             KeyCode::Right => {
-                app.editor_cycle_priority(true);
+                if app
+                    .editor
+                    .as_ref()
+                    .is_some_and(|editor| editor.field == EditorField::Priority)
+                {
+                    app.editor_cycle_priority(true);
+                } else {
+                    app.editor_move_cursor(true);
+                }
             }
             KeyCode::Backspace => {
                 app.editor_backspace();
+            }
+            KeyCode::Delete => {
+                app.editor_delete();
+            }
+            KeyCode::Home => {
+                app.editor_move_cursor_to_boundary(false);
+            }
+            KeyCode::End => {
+                app.editor_move_cursor_to_boundary(true);
             }
             KeyCode::Enter => {
                 if app
@@ -390,6 +423,88 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.editor.as_ref().unwrap().title, "Test card!");
+    }
+
+    #[test]
+    fn editor_left_right_move_cursor_and_insert_within_title() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        for _ in 0..4 {
+            handle_key(
+                crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+                &mut app,
+            )
+            .unwrap();
+        }
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT),
+            &mut app,
+        )
+        .unwrap();
+
+        let editor = app.editor.as_ref().unwrap();
+        assert_eq!(editor.title, "Test Xcard");
+    }
+
+    #[test]
+    fn editor_delete_removes_character_at_cursor() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        for _ in 0..4 {
+            handle_key(
+                crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+                &mut app,
+            )
+            .unwrap();
+        }
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.editor.as_ref().unwrap().title, "Test ard");
+    }
+
+    #[test]
+    fn editor_up_down_move_cursor_between_description_lines() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+        {
+            let editor = app.editor.as_mut().unwrap();
+            editor.field = EditorField::Description;
+            editor.description = "abc\ndefgh".to_string();
+        }
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.editor.as_ref().unwrap().description, "abc\ndeXfgh");
     }
 
     #[test]

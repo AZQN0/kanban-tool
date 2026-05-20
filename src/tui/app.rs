@@ -45,9 +45,12 @@ pub struct EditorState {
     pub card_id: String,
     pub field: EditorField,
     pub title: String,
+    pub title_cursor: usize,
     pub description: String,
+    pub description_cursor: usize,
     pub priority: Priority,
     pub labels_input: String,
+    pub labels_cursor: usize,
     pub dirty: bool,
 }
 
@@ -383,9 +386,12 @@ impl App {
             card_id: card.id.clone(),
             field: EditorField::Title,
             title: card.title.clone(),
+            title_cursor: card.title.chars().count(),
             description: card.description.clone(),
+            description_cursor: card.description.chars().count(),
             priority: card.priority.clone(),
             labels_input: card.labels.join(", "),
+            labels_cursor: card.labels.join(", ").chars().count(),
             dirty: false,
         });
         self.mode = Mode::Editing;
@@ -422,9 +428,13 @@ impl App {
         };
 
         match editor.field {
-            EditorField::Title => editor.title.push(ch),
-            EditorField::Description => editor.description.push(ch),
-            EditorField::Labels => editor.labels_input.push(ch),
+            EditorField::Title => insert_char_at(&mut editor.title, &mut editor.title_cursor, ch),
+            EditorField::Description => {
+                insert_char_at(&mut editor.description, &mut editor.description_cursor, ch)
+            }
+            EditorField::Labels => {
+                insert_char_at(&mut editor.labels_input, &mut editor.labels_cursor, ch)
+            }
             EditorField::Priority => {}
         }
         editor.dirty = true;
@@ -436,18 +446,91 @@ impl App {
         };
 
         match editor.field {
-            EditorField::Title => {
-                editor.title.pop();
-            }
+            EditorField::Title => remove_char_before(&mut editor.title, &mut editor.title_cursor),
             EditorField::Description => {
-                editor.description.pop();
+                remove_char_before(&mut editor.description, &mut editor.description_cursor)
             }
             EditorField::Labels => {
-                editor.labels_input.pop();
+                remove_char_before(&mut editor.labels_input, &mut editor.labels_cursor)
             }
             EditorField::Priority => {}
         }
         editor.dirty = true;
+    }
+
+    pub fn editor_delete(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        match editor.field {
+            EditorField::Title => remove_char_at(&mut editor.title, editor.title_cursor),
+            EditorField::Description => {
+                remove_char_at(&mut editor.description, editor.description_cursor)
+            }
+            EditorField::Labels => remove_char_at(&mut editor.labels_input, editor.labels_cursor),
+            EditorField::Priority => {}
+        }
+        editor.dirty = true;
+    }
+
+    pub fn editor_move_cursor(&mut self, forward: bool) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        match editor.field {
+            EditorField::Title => {
+                move_cursor_linear(&editor.title, &mut editor.title_cursor, forward)
+            }
+            EditorField::Description => {
+                move_cursor_linear(&editor.description, &mut editor.description_cursor, forward)
+            }
+            EditorField::Labels => {
+                move_cursor_linear(&editor.labels_input, &mut editor.labels_cursor, forward)
+            }
+            EditorField::Priority => {}
+        }
+    }
+
+    pub fn editor_move_cursor_to_boundary(&mut self, end: bool) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        match editor.field {
+            EditorField::Title => {
+                editor.title_cursor = if end { editor.title.chars().count() } else { 0 };
+            }
+            EditorField::Description => {
+                editor.description_cursor = if end {
+                    editor.description.chars().count()
+                } else {
+                    0
+                };
+            }
+            EditorField::Labels => {
+                editor.labels_cursor = if end {
+                    editor.labels_input.chars().count()
+                } else {
+                    0
+                };
+            }
+            EditorField::Priority => {}
+        }
+    }
+
+    pub fn editor_move_description_line(&mut self, down: bool) -> bool {
+        let Some(editor) = &mut self.editor else {
+            return false;
+        };
+        if editor.field != EditorField::Description || !editor.description.contains('\n') {
+            return false;
+        }
+
+        editor.description_cursor =
+            move_cursor_vertical(&editor.description, editor.description_cursor, down);
+        true
     }
 
     pub fn editor_cycle_priority(&mut self, forward: bool) {
@@ -574,6 +657,96 @@ fn parse_labels_input(input: &str) -> Vec<String> {
         .filter(|label| !label.is_empty())
         .map(ToString::to_string)
         .collect()
+}
+
+fn insert_char_at(text: &mut String, cursor: &mut usize, ch: char) {
+    let byte_idx = char_to_byte_idx(text, *cursor);
+    text.insert(byte_idx, ch);
+    *cursor += 1;
+}
+
+fn remove_char_before(text: &mut String, cursor: &mut usize) {
+    if *cursor == 0 {
+        return;
+    }
+    *cursor -= 1;
+    remove_char_at(text, *cursor);
+}
+
+fn remove_char_at(text: &mut String, cursor: usize) {
+    let char_count = text.chars().count();
+    if cursor >= char_count {
+        return;
+    }
+    let start = char_to_byte_idx(text, cursor);
+    let end = char_to_byte_idx(text, cursor + 1);
+    text.replace_range(start..end, "");
+}
+
+fn move_cursor_linear(text: &str, cursor: &mut usize, forward: bool) {
+    let char_count = text.chars().count();
+    if forward {
+        *cursor = (*cursor + 1).min(char_count);
+    } else {
+        *cursor = cursor.saturating_sub(1);
+    }
+}
+
+fn move_cursor_vertical(text: &str, cursor: usize, down: bool) -> usize {
+    let mut line_start = 0;
+    let mut column = cursor;
+    for (idx, ch) in text.chars().enumerate() {
+        if idx >= cursor {
+            break;
+        }
+        if ch == '\n' {
+            line_start = idx + 1;
+            column = cursor - line_start;
+        }
+    }
+
+    if down {
+        let current_line_end = text
+            .chars()
+            .enumerate()
+            .skip(cursor)
+            .find_map(|(idx, ch)| (ch == '\n').then_some(idx))
+            .unwrap_or_else(|| text.chars().count());
+        if current_line_end == text.chars().count() {
+            return cursor;
+        }
+        let next_start = current_line_end + 1;
+        let next_len = line_len_from(text, next_start);
+        next_start + column.min(next_len)
+    } else {
+        if line_start == 0 {
+            return cursor;
+        }
+        let previous_end = line_start - 1;
+        let previous_start = text
+            .chars()
+            .take(previous_end)
+            .enumerate()
+            .filter_map(|(idx, ch)| (ch == '\n').then_some(idx + 1))
+            .last()
+            .unwrap_or(0);
+        let previous_len = previous_end - previous_start;
+        previous_start + column.min(previous_len)
+    }
+}
+
+fn line_len_from(text: &str, start: usize) -> usize {
+    text.chars()
+        .skip(start)
+        .take_while(|ch| *ch != '\n')
+        .count()
+}
+
+fn char_to_byte_idx(text: &str, char_idx: usize) -> usize {
+    text.char_indices()
+        .nth(char_idx)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len())
 }
 
 /// Run the TUI. Returns when the user quits.
