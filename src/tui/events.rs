@@ -282,6 +282,23 @@ mod tests {
     }
 
     #[test]
+    fn right_arrow_from_selected_card_shows_detail() {
+        let mut app = test_app_with_card();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.focus, Focus::Detail);
+        assert_eq!(
+            app.detail_card.as_ref().map(|card| card.id.as_str()),
+            Some("test-card")
+        );
+    }
+
+    #[test]
     fn e_key_opens_card_editor() {
         let mut app = test_app_with_card();
 

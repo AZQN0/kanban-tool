@@ -224,13 +224,16 @@ impl App {
     pub fn focus_next(&mut self, forward: bool) {
         self.mode = Mode::Normal;
         self.detail_card = None;
-        match (forward, self.focus.clone()) {
-            (true, Focus::Columns) => self.focus = Focus::Cards,
-            (true, Focus::Cards) => self.focus = Focus::Detail,
-            (true, Focus::Detail) => self.focus = Focus::Columns,
-            (false, Focus::Columns) => self.focus = Focus::Detail,
-            (false, Focus::Cards) => self.focus = Focus::Columns,
-            (false, Focus::Detail) => self.focus = Focus::Cards,
+        self.focus = match (forward, self.focus.clone()) {
+            (true, Focus::Columns) => Focus::Cards,
+            (true, Focus::Cards) => Focus::Detail,
+            (true, Focus::Detail) => Focus::Columns,
+            (false, Focus::Columns) => Focus::Detail,
+            (false, Focus::Cards) => Focus::Columns,
+            (false, Focus::Detail) => Focus::Cards,
+        };
+        if self.focus == Focus::Detail {
+            self.detail_card = self.current_cards().get(self.card_selection).cloned();
         }
         self.normalize_focus_for_current_cards();
     }
