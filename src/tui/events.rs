@@ -397,12 +397,17 @@ mod tests {
     }
 
     #[test]
-    fn readme_markdown_export_docs_do_not_advertise_tui_editing() {
+    fn readme_markdown_export_docs_do_not_advertise_direct_markdown_editing() {
         let readme = include_str!("../../README.md");
 
         assert!(
-            !readme.contains("edit cards through the CLI, TUI"),
-            "README still advertises TUI editing of authoritative card data"
+            readme.contains("does not edit markdown files directly"),
+            "README should state that TUI editing does not edit markdown files directly"
+        );
+        assert!(
+            readme
+                .contains("Direct edits to these markdown files are not imported back into SQLite"),
+            "README should keep markdown exports separate from authoritative SQLite edits"
         );
     }
 

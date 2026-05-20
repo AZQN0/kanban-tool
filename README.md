@@ -7,7 +7,7 @@ A Rust-based kanban board system designed for coding agents, with a CLI, a termi
 - **Multi-project boards** — Initialize separate kanban boards per project
 - **Markdown card exports** — Each card is exported as a human-readable markdown file with YAML frontmatter; direct markdown edits are not imported
 - **SQLite persistence** — Fast, portable, zero-config database
-- **Terminal UI (TUI)** — Full keyboard-driven TUI with 3-panel layout (columns / cards / detail)
+- **Terminal UI (TUI)** — Full keyboard-driven TUI with 3-panel layout, focus-highlighted panels, live refresh, search, move/delete, and card editing
 - **WebUI** — Browser-based single-project kanban board with REST API, SSE updates between clients on the same server, keyboard navigation, drag-and-drop, modals, and search
 - **MCP Server** — 8 tools for programmatic card management (create, get, update, delete, list, move, search, manage)
 - **CLI** — All operations available from the command line
@@ -184,16 +184,17 @@ Start with `kanban board` (run from within an initialized project).
 ┌──────────────────────────────────────────────────────────┐
 │ 📋 Project: my-project           Cards: 12/25            │
 ├──────────┬──────────────────────────┬────────────────────┤
-│ ▶ backlog│ in_progress (3)          │ Fix auth token     │
-│   todo (2)│ review (1)              │ Priority: high     │
-│   done (0)│ done (2)                │ ────────────────── │
+│ backlog  │ todo (2)                 │ Fix auth token     │
+│ todo (2) │                          │ ID: 1eb51d69-a3c   │
+│ done (0) │ 80cb3f7f Fix auth token  │ Priority: high     │
 │           │                         │ When the access    │
-│           │ • card-1                │ token expires...   │
-│           │ ◉ card-2                │                    │
+│           │                         │ token expires...   │
 ├──────────┴──────────────────────────┴────────────────────┤
-│ ↑↓ Nav | Enter Focus | m Move | D Delete | q Quit        │
+│ [C]ards | ↑↓ Navigate | Enter Focus | e Edit | q Quit    │
 └──────────────────────────────────────────────────────────┘
 ```
+
+The focused panel border is highlighted. When the current column has no cards, focus remains on the column list so column navigation still works.
 
 ### Key Bindings
 
@@ -203,13 +204,38 @@ Start with `kanban board` (run from within an initialized project).
 | `k` / `↑` | Move selection up |
 | `h` / `←` | Focus previous panel |
 | `l` / `→` | Focus next panel |
-| `Enter` | Focus selected card in detail / Unfocus |
+| `Enter` | From columns, focus cards when cards exist; from cards, edit selected card; from detail, return to cards |
 | `Esc` | Cancel mode / Unfocus detail |
 | `m` | Move card (popup: `b`acklog, `t`odo, `i`n_progress, `r`eview, `d`one) |
 | `e` | Edit selected card fields |
 | `D` | Delete selected card |
 | `/` | Start search |
 | `q` | Quit |
+
+The TUI refreshes from SQLite once per second in normal/search/move modes, so changes made by the CLI, WebUI, MCP server, or another TUI are picked up without restarting.
+
+### TUI Card Editing
+
+Press `e` on a selected card, or press `Enter` while the cards panel is focused. The editor opens as a field list for title, description, priority, and labels.
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` / `Tab` | Select a field |
+| `Enter` / `e` | Open the selected text field editor |
+| `←` / `→` | Change priority when the priority field is selected |
+| `Ctrl+S` | Save the card |
+| `Esc` | Cancel card editing |
+
+Text fields open in a dedicated editor with a visible cursor. Title and labels are single-line editors; description is a multiline editor that wraps long lines and scrolls vertically when needed.
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Move cursor horizontally |
+| `↑` / `↓` | Move between description lines |
+| `Home` / `End` | Jump to field start/end |
+| `Enter` | Insert newline in description; finish single-line fields |
+| `Ctrl+S` | Finish the field editor |
+| `Esc` | Cancel the field edit and return to the field list |
 
 The TUI editor updates SQLite through the same persistence path as the CLI, WebUI, and MCP server, then refreshes the synchronized markdown export. It does not edit markdown files directly.
 
@@ -239,6 +265,7 @@ Start with `kanban web-ui` from an initialized project directory (requires `--fe
 
 - **Single-project view** — The running server exposes the board from its current project directory
 - **SSE updates** — Changes made through one WebUI client are broadcast to other clients connected to the same server
+- **Local refresh after mutations** — The initiating WebUI client reloads board state after move, delete, and edit actions even if SSE is unavailable
 - **Keyboard navigation** — Full keyboard-driven interaction (move `m`, delete `D`, edit `e`, search `/`)
 - **Modal dialogs** — Move, delete, and edit operations via popups
 - **Search** — Press `/` to search cards by title/description
@@ -304,7 +331,7 @@ For MCP tools where `project` is optional, omitting it uses the MCP server's cur
 
 ### Card File
 
-SQLite is the authoritative store. Each card is also synchronized to `.kanban/cards/<id>.md` as an export for reading, inspection, and repair workflows. Direct edits to these markdown files are not imported back into SQLite; edit cards through the CLI, WebUI, or MCP API.
+SQLite is the authoritative store. Each card is also synchronized to `.kanban/cards/<id>.md` as an export for reading, inspection, and repair workflows. Direct edits to these markdown files are not imported back into SQLite; edit cards through the CLI, TUI, WebUI, or MCP API.
 
 ```markdown
 ---
@@ -343,7 +370,7 @@ This project ships with an AI agent skill (`skills/kanban/SKILL.md`) covering al
 - The WebUI is single-project per running server. Start one `kanban web-ui` process per project directory.
 - WebUI SSE updates are broadcast between clients connected to the same server after WebUI API mutations. The WebUI does not currently watch SQLite for CLI or MCP changes.
 - The WebUI has no authentication. It binds to loopback by default; non-loopback binds require explicit `--allow-remote`.
-- The TUI supports navigation, edit, move, delete, and search for the current project. Start it from another initialized project directory to view that board. TUI edits update SQLite and refresh markdown exports; direct markdown edits are still not imported.
+- The TUI supports navigation, edit, move, delete, search, focus-highlighted panels, and live refresh for the current project. Start it from another initialized project directory to view that board. TUI edits update SQLite and refresh markdown exports; direct markdown edits are still not imported.
 
 ## Testing
 
@@ -372,7 +399,7 @@ bash e2e/run.sh
 npm run e2e
 ```
 
-E2E tests cover page load, columns, cards, detail view, move/delete modals, keyboard navigation, search, messages, and empty state.
+E2E tests cover page load, columns, cards, detail view, move/delete/edit flows, keyboard navigation, search, WebUI local refresh, SSE updates, API error statuses, static asset traversal protection, remote bind protection, messages, and empty state.
 
 ### Dependency Audit Notes
 

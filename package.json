@@ -1,6 +1,6 @@
 {
   "name": "kanban-tool",
-  "version": "1.0.0",
+  "version": "0.4.0",
   "description": "A Rust-based kanban board system designed for coding agents, with a CLI, TUI, WebUI, and MCP server. Boards are stored in SQLite with synchronized markdown exports.",
   "main": "index.js",
   "directories": {

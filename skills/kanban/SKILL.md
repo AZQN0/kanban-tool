@@ -40,7 +40,7 @@ my-project/
     backlog → todo → in_progress → review → done
 ```
 
-Cards are stored authoritatively in SQLite. Markdown files (`.kanban/cards/<uuid>.md`) are synchronized exports for reading, inspection, and repair workflows. Direct edits to markdown exports are not imported back into SQLite; edit cards through the CLI, WebUI, or MCP API.
+Cards are stored authoritatively in SQLite. Markdown files (`.kanban/cards/<uuid>.md`) are synchronized exports for reading, inspection, and repair workflows. Direct edits to markdown exports are not imported back into SQLite; edit cards through the CLI, TUI, WebUI, or MCP API.
 
 ## CLI Commands
 
@@ -134,6 +134,8 @@ kanban board
 
 Launches a full keyboard-driven terminal UI with 3-panel layout (columns / cards / detail). See the [README](../../README.md) for TUI key bindings.
 
+The TUI highlights the focused panel border, refreshes from SQLite once per second in normal/search/move modes, and keeps focus on the column list when the selected column has no cards. Press `e`, or press `Enter` while the cards panel is focused, to edit the selected card. The editor uses a field list for title, description, priority, and labels; press `Enter` or `e` on title, description, or labels to open a dedicated text editor with a movable cursor. Description editing is multiline, wraps long lines, and scrolls vertically when needed. `Ctrl+S` saves the card through SQLite and refreshes the markdown export; direct markdown edits are still not imported.
+
 ### WebUI (Browser-based)
 
 ```bash
@@ -142,7 +144,7 @@ kanban web-ui --port 8080                          # Custom local port
 kanban web-ui --bind 0.0.0.0 --allow-remote        # Explicit remote bind
 ```
 
-Requires build with `--features webui`. Provides a browser-based kanban board with SSE updates between clients connected to the same running server, keyboard navigation, modals, and search. It binds to `127.0.0.1` by default; non-loopback bind addresses require `--allow-remote`. No authentication is provided. See the [README](../../README.md) for WebUI key bindings and REST API docs.
+Requires build with `--features webui`. Provides a browser-based kanban board with SSE updates between clients connected to the same running server, keyboard navigation, modals, and search. The initiating WebUI client also reloads board state after move, delete, and edit actions, so those actions remain visible even when SSE is unavailable in that browser session. It binds to `127.0.0.1` by default; non-loopback bind addresses require `--allow-remote`. No authentication is provided. See the [README](../../README.md) for WebUI key bindings and REST API docs.
 
 ### MCP Server
 
