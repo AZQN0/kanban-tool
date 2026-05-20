@@ -9,6 +9,32 @@ use super::card::{Card, Priority};
 use super::column::Column;
 use super::Comment;
 
+#[derive(Debug)]
+pub enum StoreError {
+    NotFound { resource: &'static str, id: String },
+    BadInput(String),
+}
+
+impl StoreError {
+    fn not_found(resource: &'static str, id: &str) -> Self {
+        Self::NotFound {
+            resource,
+            id: id.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound { resource, id } => write!(f, "{} not found: {}", resource, id),
+            Self::BadInput(message) => write!(f, "{}", message),
+        }
+    }
+}
+
+impl std::error::Error for StoreError {}
+
 fn s(r: &rusqlite::Row<'_>, idx: usize) -> String {
     r.get::<_, String>(idx).unwrap_or_default()
 }
@@ -190,14 +216,18 @@ impl Store {
     }
 
     pub fn get_card(&self, card_id: &str) -> Result<Card> {
-        let (id, board_id, column_id, title, description, priority, labels, subtasks, parent_card_id, card_file, created_at, updated_at) = self.conn.query_row(
+        let row = self.conn.query_row(
             "SELECT id, board_id, column_id, title, description, priority, labels, subtasks, parent_card_id, card_file, created_at, updated_at FROM cards WHERE id = ?1",
             params![card_id],
             |r| Ok((
                 s(r, 0), s(r, 1), s(r, 2), s(r, 3), s(r, 4), s(r, 5), s(r, 6),
                 s(r, 7), o(r, 8), s(r, 9), s(r, 10), s(r, 11)
             )),
-        ).context(format!("Card not found: {}", card_id))?;
+        ).optional()
+            .context("Failed to query card")?
+            .ok_or_else(|| StoreError::not_found("Card", card_id))?;
+
+        let (id, board_id, column_id, title, description, priority, labels, subtasks, parent_card_id, card_file, created_at, updated_at) = row;
         
         Ok(Card {
             id, board_id, column_id, title, description,
@@ -238,22 +268,29 @@ impl Store {
         }
         
         if updates.is_empty() {
+            self.get_card(card_id)?;
             return Ok(());
         }
         
         let query = format!("UPDATE cards SET {} WHERE id = ?", updates.join(", "));
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = values;
         params.push(Box::new(card_id.to_string()));
-        self.conn.execute(&query, rusqlite::params_from_iter(params.iter().map(|v| v.as_ref())))
+        let affected = self.conn.execute(&query, rusqlite::params_from_iter(params.iter().map(|v| v.as_ref())))
             .context("Failed to update card")?;
+        if affected == 0 {
+            return Err(StoreError::not_found("Card", card_id).into());
+        }
         Ok(())
     }
 
     pub fn delete_card(&mut self, card_id: &str) -> Result<()> {
-        self.conn.execute(
+        let affected = self.conn.execute(
             "DELETE FROM cards WHERE id = ?1",
             params![card_id],
         ).context("Failed to delete card")?;
+        if affected == 0 {
+            return Err(StoreError::not_found("Card", card_id).into());
+        }
         Ok(())
     }
 
@@ -326,10 +363,21 @@ impl Store {
     }
 
     pub fn transition_card(&mut self, card_id: &str, new_column_id: &str) -> Result<()> {
-        self.conn.execute(
+        if self.conn.query_row(
+            "SELECT 1 FROM columns WHERE id = ?1",
+            params![new_column_id],
+            |_| Ok(()),
+        ).optional().context("Failed to validate target column")?.is_none() {
+            return Err(StoreError::BadInput(format!("Column not found: {}", new_column_id)).into());
+        }
+
+        let affected = self.conn.execute(
             "UPDATE cards SET column_id = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![new_column_id, card_id],
         ).context("Failed to transition card")?;
+        if affected == 0 {
+            return Err(StoreError::not_found("Card", card_id).into());
+        }
         Ok(())
     }
 
@@ -380,5 +428,84 @@ impl Store {
             params![project_path],
             |r| r.get(0),
         ).context(format!("No board found for path: {}", project_path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_store() -> Store {
+        let conn = Connection::open_in_memory().unwrap();
+        let mut store = Store { conn };
+        store.apply_migrations().unwrap();
+        store.create_board("board-1", "/tmp/test-project", "Test Project").unwrap();
+        store.add_column(&Column {
+            id: "todo".to_string(),
+            board_id: "board-1".to_string(),
+            name: "todo".to_string(),
+            sort_order: 0,
+        }).unwrap();
+        store.add_column(&Column {
+            id: "done".to_string(),
+            board_id: "board-1".to_string(),
+            name: "done".to_string(),
+            sort_order: 1,
+        }).unwrap();
+        store
+    }
+
+    fn test_card(id: &str) -> Card {
+        let mut card = Card::new(
+            "board-1",
+            "todo",
+            "Test card",
+            "Description",
+            Priority::Medium,
+            vec![],
+            PathBuf::from(format!("{id}.md")),
+        );
+        card.id = id.to_string();
+        card
+    }
+
+    #[test]
+    fn delete_card_returns_error_when_no_row_is_deleted() {
+        let mut store = test_store();
+
+        let err = store.delete_card("not-a-card").unwrap_err();
+
+        assert!(err.to_string().contains("not-a-card"));
+    }
+
+    #[test]
+    fn update_card_returns_error_when_no_row_is_updated() {
+        let mut store = test_store();
+
+        let err = store
+            .update_card("not-a-card", Some("New title"), None, None, None, None)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("not-a-card"));
+    }
+
+    #[test]
+    fn transition_card_returns_error_when_no_row_is_updated() {
+        let mut store = test_store();
+
+        let err = store.transition_card("not-a-card", "done").unwrap_err();
+
+        assert!(err.to_string().contains("not-a-card"));
+    }
+
+    #[test]
+    fn delete_card_deletes_existing_card() {
+        let mut store = test_store();
+        let card = test_card("card-1");
+        store.create_card(&card).unwrap();
+
+        store.delete_card("card-1").unwrap();
+
+        assert!(store.get_card("card-1").is_err());
     }
 }

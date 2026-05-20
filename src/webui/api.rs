@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use tokio::sync::broadcast;
 
 use crate::board::card::{Card, Priority};
-use crate::board::store::Store;
+use crate::board::store::{Store, StoreError};
 use crate::board::Board;
 use crate::kanban::config;
 
@@ -22,32 +22,49 @@ use super::sse::ServerSentEvent;
 
 /// Error response for API routes.
 #[derive(Serialize)]
+pub enum ApiErrorKind {
+    BadRequest,
+    NotFound,
+    Internal,
+}
+
+/// Error response for API routes.
+#[derive(Serialize)]
 pub struct ApiError {
+    #[serde(skip_serializing)]
+    pub kind: ApiErrorKind,
     pub error: String,
 }
 
 impl ApiError {
     pub fn internal(msg: String) -> Self {
-        Self { error: msg }
+        Self { kind: ApiErrorKind::Internal, error: msg }
     }
     pub fn bad_request(msg: String) -> Self {
-        Self { error: msg }
+        Self { kind: ApiErrorKind::BadRequest, error: msg }
     }
     pub fn not_found(msg: String) -> Self {
-        Self { error: msg }
+        Self { kind: ApiErrorKind::NotFound, error: msg }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let status = if self.error.starts_with("not_found:") {
-            StatusCode::NOT_FOUND
-        } else if self.error.starts_with("bad:") {
-            StatusCode::BAD_REQUEST
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
+        let status = match self.kind {
+            ApiErrorKind::BadRequest => StatusCode::BAD_REQUEST,
+            ApiErrorKind::NotFound => StatusCode::NOT_FOUND,
+            ApiErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(self)).into_response()
+    }
+}
+
+fn store_error(err: anyhow::Error, context: &str) -> ApiError {
+    let message = err.to_string();
+    match err.downcast_ref::<StoreError>() {
+        Some(StoreError::NotFound { .. }) => ApiError::not_found(message),
+        Some(StoreError::BadInput(_)) => ApiError::bad_request(message),
+        None => ApiError::internal(format!("{}: {}", context, message)),
     }
 }
 
@@ -183,7 +200,7 @@ pub async fn get_card(
 ) -> Result<Json<Card>, ApiError> {
     let store = open_store(&app)?;
     let card = store.get_card(&card_id)
-        .map_err(|e| ApiError::not_found(format!("Card not found: {}", e)))?;
+        .map_err(|e| store_error(e, "Failed to get card"))?;
     Ok(Json(card))
 }
 
@@ -250,10 +267,8 @@ pub async fn update_card(
     let mut store = open_store(&app)?;
     let board = get_board(&app)?;
     
-    // Verify card exists
-    if store.get_card(&card_id).is_err() {
-        return Err(ApiError::not_found(format!("Card not found: {card_id}")));
-    }
+    store.get_card(&card_id)
+        .map_err(|e| store_error(e, "Failed to get card"))?;
     
     // Resolve optional column
     let new_col_id: Option<&str> = if let Some(ref col_name) = body.column {
@@ -282,7 +297,7 @@ pub async fn update_card(
         new_col_id,
         new_priority_str.as_deref(),
         body.labels.as_ref().map(|l| l.as_slice()),
-    ).map_err(|e| ApiError::internal(format!("Failed to update card: {}", e)))?;
+    ).map_err(|e| store_error(e, "Failed to update card"))?;
     
     // Write updated markdown file
     let updated = store.get_card(&card_id)
@@ -307,7 +322,7 @@ pub async fn delete_card(
     let mut store = open_store(&app)?;
     
     store.delete_card(&card_id)
-        .map_err(|e| ApiError::internal(format!("Failed to delete card: {}", e)))?;
+        .map_err(|e| store_error(e, "Failed to delete card"))?;
     
     // Remove markdown file
     crate::markdown::writer::remove_card_file(&card_id, &config::cards_dir(&app.project_path))
@@ -337,7 +352,7 @@ pub async fn move_card(
     
     // Update DB
     store.transition_card(&card_id, &target_col.id)
-        .map_err(|e| ApiError::internal(format!("Failed to move card: {}", e)))?;
+        .map_err(|e| store_error(e, "Failed to move card"))?;
     
     // Update markdown file
     let updated = store.get_card(&card_id)
