@@ -42,6 +42,17 @@ my-project/
 
 Cards are stored authoritatively in SQLite. Markdown files (`.kanban/cards/<uuid>.md`) are synchronized exports for reading, inspection, and repair workflows. Direct edits to markdown exports are not imported back into SQLite; edit cards through the CLI, TUI, WebUI, or MCP API.
 
+## Required Initialization
+
+Each project must be initialized once before `kanban board`, `kanban web-ui`, or card commands can open it:
+
+```bash
+cd /path/to/project
+kanban init
+```
+
+If a command reports `No kanban board found` or tries to open a missing `.kanban/kanban.db`, tell the user to run `kanban init` in that project directory, or run `kanban init /path/to/project` from elsewhere.
+
 ## CLI Commands
 
 ### Initialize a Board

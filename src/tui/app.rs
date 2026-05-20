@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use crossterm::event::{self, Event as CEvent, KeyEventKind};
 use std::path::PathBuf;
 
 use crate::board::card::{Card, Priority};
 use crate::board::store::{CardSort, Store};
-use crate::kanban::config::{cards_dir, db_path};
+use crate::kanban::config::{cards_dir, db_path, is_initialized};
 use crate::persistence::{
     delete_card_with_markdown, move_card_with_markdown, update_card_with_markdown, CardPatch,
 };
@@ -99,6 +99,14 @@ pub struct ColumnView {
 
 impl App {
     pub fn new(project_path: PathBuf) -> Result<Self> {
+        if !is_initialized(&project_path) {
+            bail!(
+                "No kanban board found at {}. Run `kanban init {}` first.",
+                project_path.display(),
+                project_path.display()
+            );
+        }
+
         let db = db_path(&project_path);
         let store = Store::open(&db).context("Failed to open kanban database")?;
         let snapshot = store
@@ -828,17 +836,8 @@ fn char_to_byte_idx(text: &str, char_idx: usize) -> usize {
 
 /// Run the TUI. Returns when the user quits.
 pub fn run(project_path: PathBuf) -> Result<()> {
+    let mut app = App::new(project_path)?;
     let mut terminal = ratatui::init();
-    let mut app = match App::new(project_path.clone()) {
-        Ok(a) => a,
-        Err(e) => {
-            terminal.clear()?;
-            eprintln!("Error: {}", e);
-            ratatui::restore();
-            return Err(e);
-        }
-    };
-
     let mut last_frame_size = ratatui::layout::Size {
         width: terminal.size()?.width,
         height: terminal.size()?.height,
@@ -942,6 +941,25 @@ mod tests {
             create_card_with_markdown(&mut store, &card, &cards_dir(&self.project)).unwrap();
             card
         }
+    }
+
+    #[test]
+    fn app_new_reports_uninitialized_project_before_opening_database() {
+        let project =
+            std::env::temp_dir().join(format!("kanban_tui_uninitialized_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&project).unwrap();
+
+        let err = match App::new(project.clone()) {
+            Ok(_) => panic!("uninitialized project should not open in TUI"),
+            Err(err) => err,
+        };
+
+        let message = err.to_string();
+        assert!(message.contains("No kanban board found"));
+        assert!(message.contains(project.to_string_lossy().as_ref()));
+        assert!(!message.contains("Database temporarily locked"));
+
+        let _ = fs::remove_dir_all(&project);
     }
 
     #[test]

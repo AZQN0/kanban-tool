@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, Error as SqliteError, ErrorCode, OptionalExtension};
 use rusqlite_migration::Migrations;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -87,14 +87,20 @@ impl Store {
         match Self::open_inner(path) {
             Ok(store) => Ok(store),
             Err(e) => {
+                if !is_sqlite_lock_error(&e) {
+                    return Err(e);
+                }
+
                 // WAL lock is transient — retry once after a short delay
                 std::thread::sleep(Duration::from_millis(200));
-                Self::open_inner(path).map_err(|_| {
-                    anyhow!(
+                match Self::open_inner(path) {
+                    Ok(store) => Ok(store),
+                    Err(retry_err) if is_sqlite_lock_error(&retry_err) => Err(anyhow!(
                         "Database temporarily locked (WAL lock). Retry later. Original error: {}",
                         e
-                    )
-                })
+                    )),
+                    Err(retry_err) => Err(retry_err),
+                }
             }
         }
     }
@@ -611,6 +617,19 @@ impl Store {
     }
 }
 
+fn is_sqlite_lock_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<SqliteError>(),
+            Some(SqliteError::SqliteFailure(sqlite_error, _))
+                if matches!(
+                    sqlite_error.code,
+                    ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
+                )
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -681,6 +700,24 @@ mod tests {
                 sort_order: 0,
             })
             .unwrap();
+    }
+
+    #[test]
+    fn open_preserves_non_lock_open_errors() {
+        let db = std::env::temp_dir()
+            .join(format!("kanban_missing_parent_{}", uuid::Uuid::new_v4()))
+            .join("kanban.db");
+
+        let err = match Store::open(&db) {
+            Ok(_) => panic!("opening a database below a missing parent should fail"),
+            Err(err) => err,
+        };
+        let message = format!("{err:#}");
+
+        assert!(message.contains("Failed to open database at"));
+        assert!(message.contains(db.to_string_lossy().as_ref()));
+        assert!(!message.contains("Database temporarily locked"));
+        assert!(!message.contains("WAL lock"));
     }
 
     #[test]
