@@ -1,6 +1,6 @@
 // @ts-check
 const { test, expect } = require("@playwright/test");
-const { withKanbanProject } = require("./helper");
+const { withKanbanProject, runKanban } = require("./helper");
 
 async function disableSSE(page) {
   await page.addInitScript(() => {
@@ -13,6 +13,21 @@ async function disableSSE(page) {
 }
 
 test.describe("Kanban WebUI E2E Tests", () => {
+  test("uses the documented web-ui command spelling", async () => {
+    const help = runKanban(["web-ui", "--help"]);
+    expect(help).toContain("Start the WebUI");
+    expect(help).toContain("--allow-remote");
+
+    let misspelledOutput = "";
+    try {
+      runKanban(["webui", "--help"]);
+    } catch (error) {
+      misspelledOutput = `${error.stdout || ""}\n${error.stderr || ""}`;
+    }
+    expect(misspelledOutput).toContain("unrecognized subcommand");
+    expect(misspelledOutput).toContain("web-ui");
+  });
+
   test("does not advertise project switching in the single-project WebUI", async ({ page }) => {
     await withKanbanProject({
       fn: async (tmpDir, port) => {

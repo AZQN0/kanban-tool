@@ -1,14 +1,82 @@
 // Helper utilities for Kanban WebUI E2E tests.
 // Starts a temporary kanban project, runs the test callback, then cleans up.
 
-const { execSync, spawn } = require("child_process");
+const { execFileSync, spawn } = require("child_process");
 const fs = require("fs");
+const http = require("http");
+const net = require("net");
 const path = require("path");
 const os = require("os");
 
 const BIN = path.resolve(__dirname, "../target/release/kanban");
 
 let serverProcess = null;
+
+async function freePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => {
+        if (address && typeof address === "object") {
+          resolve(address.port);
+        } else {
+          reject(new Error("Could not allocate free port"));
+        }
+      });
+    });
+    server.on("error", reject);
+  });
+}
+
+function runKanban(args, opts = {}) {
+  const kanbanBin = opts.bin || BIN;
+  return execFileSync(kanbanBin, args, {
+    cwd: opts.cwd || path.resolve(__dirname, ".."),
+    timeout: opts.timeout || 10000,
+    encoding: "utf8",
+    stdio: opts.stdio || ["ignore", "pipe", "pipe"],
+  });
+}
+
+async function waitForServer(port) {
+  const deadline = Date.now() + 8000;
+  let lastError;
+
+  while (Date.now() < deadline) {
+    try {
+      const status = await new Promise((resolve, reject) => {
+        const req = http.get(
+          {
+            hostname: "127.0.0.1",
+            port,
+            path: "/api/cards",
+            timeout: 1000,
+          },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode);
+          }
+        );
+        req.on("timeout", () => {
+          req.destroy(new Error("Timed out waiting for server"));
+        });
+        req.on("error", reject);
+      });
+
+      if (status === 200) {
+        return;
+      }
+      lastError = new Error(`Unexpected status ${status}`);
+    } catch (error) {
+      lastError = error;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw lastError || new Error("Server did not become ready");
+}
 
 /**
  * Start the webui server serving from a specific project directory.
@@ -46,35 +114,59 @@ function stopServer() {
  * Create a temporary kanban project, run the test callback, then clean up.
  */
 async function withKanbanProject(opts) {
-  const projectName = opts.projectName || `kanban-e2e-${Date.now()}`;
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kanban-"));
   const kanbanBin = opts.bin || BIN;
-  const port = opts.port || 9877; // Use different port to avoid conflicts
+  const port = opts.port || await freePort();
 
   let server;
   try {
     // Initialize kanban board
-    execSync(`${kanbanBin} init "${tmpDir}"`, {
-      cwd: path.resolve(__dirname, ".."),
-      timeout: 10000,
-    });
+    runKanban(["init", tmpDir], { bin: kanbanBin });
 
     // Create test cards
-    execSync(
-      `${kanbanBin} create --project "${tmpDir}" --title "Test Card 1" --description "First card" --priority high --column backlog`,
-      { cwd: path.resolve(__dirname, ".."), timeout: 10000 }
-    );
-    execSync(
-      `${kanbanBin} create --project "${tmpDir}" --title "Test Card 2" --description "Second card" --priority medium --column backlog`,
-      { cwd: path.resolve(__dirname, ".."), timeout: 10000 }
-    );
-    execSync(
-      `${kanbanBin} create --project "${tmpDir}" --title "Test Card 3" --description "Third card" --priority low --column backlog`,
-      { cwd: path.resolve(__dirname, ".."), timeout: 10000 }
-    );
+    runKanban([
+      "create",
+      "--project",
+      tmpDir,
+      "--title",
+      "Test Card 1",
+      "--description",
+      "First card",
+      "--priority",
+      "high",
+      "--column",
+      "backlog",
+    ], { bin: kanbanBin });
+    runKanban([
+      "create",
+      "--project",
+      tmpDir,
+      "--title",
+      "Test Card 2",
+      "--description",
+      "Second card",
+      "--priority",
+      "medium",
+      "--column",
+      "backlog",
+    ], { bin: kanbanBin });
+    runKanban([
+      "create",
+      "--project",
+      tmpDir,
+      "--title",
+      "Test Card 3",
+      "--description",
+      "Third card",
+      "--priority",
+      "low",
+      "--column",
+      "backlog",
+    ], { bin: kanbanBin });
 
     // Start server serving from the project directory
     server = await startServer(tmpDir, port);
+    await waitForServer(port);
 
     await opts.fn(tmpDir, port);
   } finally {
@@ -83,4 +175,4 @@ async function withKanbanProject(opts) {
   }
 }
 
-module.exports = { withKanbanProject, startServer, stopServer, BIN };
+module.exports = { withKanbanProject, startServer, stopServer, runKanban, freePort, BIN };
