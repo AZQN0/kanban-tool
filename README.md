@@ -75,7 +75,7 @@ kanban move <CARD_ID> in_progress
 kanban board
 
 # 6. Open the WebUI (browser-based, requires --features webui)
-kanban webui --port 8080
+kanban web-ui --port 8080
 
 # 7. Start the MCP server (for AI coding tools)
 kanban server
@@ -148,22 +148,24 @@ Removes the card from both SQLite and the markdown file system.
 
 Launch the terminal UI (TUI). Run from within an initialized project directory.
 
-### `kanban webui [OPTIONS]`
+### `kanban web-ui [OPTIONS]`
 
 Launch the WebUI in a browser. Requires build with `--features webui`.
+The WebUI binds to `127.0.0.1` by default. Non-loopback bind addresses are refused unless you pass `--allow-remote`, because the WebUI exposes unauthenticated mutating API routes.
 
 ```bash
-kanban webui                     # Default: http://127.0.0.1:9876
-kanban webui --port 8080         # Custom port
-kanban webui --bind 0.0.0.0      # Bind all interfaces
-kanban webui --bind 0.0.0.0 --port 3000
+kanban web-ui                                      # Default: http://127.0.0.1:9876
+kanban web-ui --port 8080                          # Custom local port
+kanban web-ui --bind 0.0.0.0 --allow-remote        # Explicit remote bind
+kanban web-ui --bind 0.0.0.0 --port 3000 --allow-remote
 ```
 
 **Options:**
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--bind` | `127.0.0.1` | Bind address |
+| `--bind` | `127.0.0.1` | Bind address. Non-loopback addresses require `--allow-remote` |
 | `--port` | `9876` | Port to listen on |
+| `--allow-remote` | `false` | Permit binding the unauthenticated WebUI to a non-loopback address |
 
 ### `kanban server`
 
@@ -209,7 +211,7 @@ Start with `kanban board` (run from within an initialized project).
 
 ## WebUI
 
-Start with `kanban webui` (requires `--features webui`). Opens a browser-based kanban board with live updates via Server-Sent Events.
+Start with `kanban web-ui` (requires `--features webui`). Opens a browser-based kanban board with live updates via Server-Sent Events. It is local-only by default; pass `--allow-remote` only when you intentionally want to expose it beyond loopback.
 
 ### Layout
 
