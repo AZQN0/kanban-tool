@@ -108,6 +108,7 @@ async function searchCards(query) {
 async function moveCard(cardId, targetColumn) {
   try {
     await API.post(`/api/cards/${cardId}/move`, { column: targetColumn });
+    await refreshAll();
     showMessage(`Moved card to ${targetColumn}`);
   } catch (e) {
     showMessage(`Error: ${e.message}`);
@@ -119,6 +120,7 @@ async function deleteCard(cardId, title) {
     await API.del(`/api/cards/${cardId}`);
     state.detailCard = null;
     state.cardSelection = 0;
+    await refreshAll();
     showMessage(`Deleted '${title}'`);
   } catch (e) {
     showMessage(`Error: ${e.message}`);
@@ -130,6 +132,7 @@ async function updateCard(cardId, updates) {
     await API.patch(`/api/cards/${cardId}`, updates);
     state.mode = "normal";
     state.detailCard = null;
+    await refreshAll();
     showMessage("Card updated");
   } catch (e) {
     showMessage(`Error: ${e.message}`);
@@ -432,6 +435,10 @@ function showMessage(msg) {
 // ---------------------------------------------------------------------------
 // SSE connection
 // ---------------------------------------------------------------------------
+function setSSEStatus(status) {
+  document.body.dataset.sse = status;
+}
+
 function connectSSE() {
   if (state.sse && state.sse.readyState !== EventSource.CLOSED) {
     return;
@@ -442,11 +449,13 @@ function connectSSE() {
   }
 
   try {
+    setSSEStatus("connecting");
     const evtSource = new EventSource("/api/events");
     state.sse = evtSource;
 
     evtSource.onopen = () => {
       state.sseReconnectDelay = 1000;
+      setSSEStatus("connected");
     };
 
     evtSource.addEventListener("card_created", () => {
@@ -467,6 +476,7 @@ function connectSSE() {
 
     evtSource.onerror = () => {
       console.log("SSE connection lost, reconnecting...");
+      setSSEStatus("reconnecting");
       evtSource.close();
       if (state.sse === evtSource) {
         state.sse = null;
@@ -480,6 +490,7 @@ function connectSSE() {
       }, delay);
     };
   } catch (e) {
+    setSSEStatus("unavailable");
     console.log("SSE not available:", e);
   }
 }
