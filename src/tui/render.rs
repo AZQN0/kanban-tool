@@ -96,7 +96,8 @@ fn render_columns(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Columns ")
-                .style(Style::default().fg(Color::Gray)),
+                .style(Style::default().fg(Color::Gray))
+                .border_style(panel_border_style(app.focus == Focus::Columns)),
         )
         .highlight_style(
             Style::default()
@@ -147,7 +148,8 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!(" {} ", col_name))
-                .style(Style::default().fg(Color::Gray)),
+                .style(Style::default().fg(Color::Gray))
+                .border_style(panel_border_style(app.focus == Focus::Cards)),
         )
         .highlight_style(
             Style::default()
@@ -179,11 +181,22 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Detail ")
-                .style(Style::default().fg(Color::Gray)),
+                .style(Style::default().fg(Color::Gray))
+                .border_style(panel_border_style(app.focus == Focus::Detail)),
         )
         .wrap(ratatui::widgets::Wrap { trim: true });
 
     frame.render_widget(paragraph, area);
+}
+
+fn panel_border_style(focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Gray)
+    }
 }
 
 /// Render the bottom status bar with key bindings.
@@ -747,6 +760,31 @@ mod tests {
             !rendered.contains("P Project"),
             "rendered buffer advertised unsupported project switching: {rendered}"
         );
+    }
+
+    #[test]
+    fn render_main_panel_border_reflects_focus() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+
+        app.focus = Focus::Columns;
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        assert_eq!(terminal.backend().buffer()[(0, 1)].fg, Color::Cyan);
+        assert_eq!(terminal.backend().buffer()[(16, 1)].fg, Color::Gray);
+        assert_eq!(terminal.backend().buffer()[(60, 1)].fg, Color::Gray);
+
+        app.focus = Focus::Cards;
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        assert_eq!(terminal.backend().buffer()[(0, 1)].fg, Color::Gray);
+        assert_eq!(terminal.backend().buffer()[(16, 1)].fg, Color::Cyan);
+        assert_eq!(terminal.backend().buffer()[(60, 1)].fg, Color::Gray);
+
+        app.focus = Focus::Detail;
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        assert_eq!(terminal.backend().buffer()[(0, 1)].fg, Color::Gray);
+        assert_eq!(terminal.backend().buffer()[(16, 1)].fg, Color::Gray);
+        assert_eq!(terminal.backend().buffer()[(60, 1)].fg, Color::Cyan);
     }
 
     #[test]
