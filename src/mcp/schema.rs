@@ -298,15 +298,15 @@ impl ListCardsTool {
             resolve_priority(&Some(priority.clone()))?;
         }
 
-        let column_id = self
-            .column
-            .as_ref()
-            .and_then(|name| Column::find_by_name(&board.columns, name).map(|c| c.id.as_str()));
+        let column_id = match &self.column {
+            Some(column) => Some(resolve_column(&board, &Some(column.clone()))?),
+            None => None,
+        };
 
         let cards = store
             .list_cards(
                 &board.id,
-                column_id,
+                column_id.as_deref(),
                 self.priority.as_deref(),
                 self.labels.as_deref(),
                 "created",
@@ -837,6 +837,30 @@ mod tests {
             card_id,
             project: Some(project.project_arg()),
             column: "missing".to_string(),
+        }
+        .call_tool(None)
+        .unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("Unknown column 'missing'"), "{message}");
+        assert!(
+            message.contains("Available: backlog, todo, in_progress, review, done"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn list_cards_unknown_column_returns_available_columns() {
+        let project = TestProject::new();
+        create_card(&project.path, "List me");
+
+        let err = ListCardsTool {
+            project: Some(project.project_arg()),
+            column: Some("missing".to_string()),
+            priority: None,
+            labels: None,
+            limit: None,
+            offset: None,
         }
         .call_tool(None)
         .unwrap_err();
