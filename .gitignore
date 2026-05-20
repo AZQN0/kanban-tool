@@ -2,3 +2,8 @@
 Cargo.lock
 .kanban/
 .worktrees
+
+# Playwright
+test-results/
+playwright-report/
+
