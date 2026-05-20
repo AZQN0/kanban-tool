@@ -146,12 +146,17 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             app.card_nav(true);
         }
 
-        // Enter: focus detail view on selected card
-        KeyCode::Enter if app.focus == Focus::Cards || app.focus == Focus::Columns => {
+        // Enter: focus the next actionable panel.
+        KeyCode::Enter if app.focus == Focus::Columns && !app.current_cards().is_empty() => {
+            app.focus = Focus::Cards;
+            app.card_selection = 0;
+            app.detail_card = None;
+        }
+        KeyCode::Enter if app.focus == Focus::Cards => {
             let cards = app.current_cards();
-            if !cards.is_empty() && app.card_selection < cards.len() {
-                app.detail_card = Some(cards[app.card_selection].clone());
-                app.focus = Focus::Cards;
+            if let Some(card) = cards.get(app.card_selection) {
+                app.detail_card = Some(card.clone());
+                app.focus = Focus::Detail;
             }
         }
         // Enter: unfocus detail view
@@ -287,6 +292,23 @@ mod tests {
 
         handle_key(
             crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.focus, Focus::Detail);
+        assert_eq!(
+            app.detail_card.as_ref().map(|card| card.id.as_str()),
+            Some("test-card")
+        );
+    }
+
+    #[test]
+    fn enter_from_selected_card_focuses_detail() {
+        let mut app = test_app_with_card();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
             &mut app,
         )
         .unwrap();
