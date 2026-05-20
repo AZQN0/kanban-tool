@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         .constraints([
             Constraint::Length(1),  // Top status bar
             Constraint::Min(1),     // Main area
-            Constraint::Length(2),  // Bottom status bar
+            Constraint::Length(3),  // Bottom status bar
         ])
         .split(frame.area());
 
@@ -197,14 +197,22 @@ fn render_bottom_statusbar(frame: &mut Frame, app: &App, area: Rect) {
         Focus::Detail => "[D]etail",
     };
 
-    let text = if app.message.is_some() {
+    let text = if let Some(error) = &app.error {
+        format!(" {} | ERROR: {}", focus_indicator, error)
+    } else if app.message.is_some() {
         format!(" {} | ↑↓ Navigate | Enter Focus | m Move | e Edit | d Delete | P Project | / Search | q Quit | {}", focus_indicator, app.message.as_ref().unwrap_or(&String::new()))
     } else {
         format!(" {} | ↑↓ Navigate | Enter Focus | m Move | e Edit | d Delete | P Project | / Search | q Quit", focus_indicator)
     };
 
+    let style = if app.error.is_some() {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
     let paragraph = Paragraph::new(text)
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::DarkGray)))
+        .block(Block::default().borders(Borders::ALL).style(style))
         .alignment(Alignment::Left);
 
     frame.render_widget(paragraph, area);
@@ -367,4 +375,60 @@ fn center_rect(r: Rect, width: u16, height: u16) -> Rect {
         width.min(r.width),
         height.min(r.height),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+    use std::path::PathBuf;
+
+    use crate::tui::app::ColumnView;
+
+    fn test_app() -> App {
+        App {
+            running: true,
+            focus: Focus::Cards,
+            mode: Mode::Normal,
+            error: None,
+            project_path: PathBuf::from("/tmp/test-project"),
+            board_name: "Test Board".to_string(),
+            columns: vec![ColumnView {
+                name: "todo".to_string(),
+                cards: vec![],
+            }],
+            all_cards: vec![],
+            current_column_idx: 0,
+            card_selection: 0,
+            detail_card: None,
+            search_query: String::new(),
+            search_results: vec![],
+            all_projects: vec![],
+            project_picker_idx: 0,
+            message: None,
+            message_time: std::time::Instant::now(),
+        }
+    }
+
+    #[test]
+    fn render_bottom_statusbar_displays_errors() {
+        let backend = TestBackend::new(100, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        app.error = Some("Card not found: not-a-card".to_string());
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            rendered.contains("Card not found: not-a-card"),
+            "rendered buffer did not contain error: {rendered}"
+        );
+    }
 }

@@ -499,6 +499,17 @@ mod tests {
     }
 
     #[test]
+    fn transition_card_returns_bad_input_for_unknown_column() {
+        let mut store = test_store();
+        let card = test_card("card-1");
+        store.create_card(&card).unwrap();
+
+        let err = store.transition_card("card-1", "missing-column").unwrap_err();
+
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::BadInput(_))));
+    }
+
+    #[test]
     fn delete_card_deletes_existing_card() {
         let mut store = test_store();
         let card = test_card("card-1");
