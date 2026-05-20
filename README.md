@@ -1,14 +1,14 @@
 # Kanban — A Kanban Board for Coding Agents
 
-A Rust-based kanban board system designed for coding agents, with a CLI, a terminal UI (TUI), a WebUI, and an MCP server. Boards are stored in SQLite, with markdown card files maintained as synchronized exports.
+A Rust-based kanban board system designed for coding agents, with a CLI, a terminal UI (TUI), a WebUI, and an MCP server. Boards are stored authoritatively in SQLite, with markdown card files maintained as synchronized exports.
 
 ## Features
 
 - **Multi-project boards** — Initialize separate kanban boards per project
-- **Markdown card exports** — Each card is exported as a human-readable markdown file with YAML frontmatter
+- **Markdown card exports** — Each card is exported as a human-readable markdown file with YAML frontmatter; direct markdown edits are not imported
 - **SQLite persistence** — Fast, portable, zero-config database
 - **Terminal UI (TUI)** — Full keyboard-driven TUI with 3-panel layout (columns / cards / detail)
-- **WebUI** — Browser-based single-project kanban board with REST API, SSE live updates, keyboard navigation, drag-and-drop, modals, and search
+- **WebUI** — Browser-based single-project kanban board with REST API, SSE updates between clients on the same server, keyboard navigation, drag-and-drop, modals, and search
 - **MCP Server** — 8 tools for programmatic card management (create, get, update, delete, list, move, search, manage)
 - **CLI** — All operations available from the command line
 - **Filters** — List cards by column, priority, or labels
@@ -38,7 +38,7 @@ A Rust-based kanban board system designed for coding agents, with a CLI, a termi
 Requires Rust 1.75+.
 
 ```bash
-git clone <repo>
+git clone https://github.com/AZQN0/kanban-tool.git
 cd kanban-tool
 cargo build --release
 ```
@@ -59,7 +59,9 @@ cargo install --path . --features webui
 
 ```bash
 # 1. Initialize a board
-cd my-project && kanban init
+mkdir -p my-project
+cd my-project
+kanban init
 
 # 2. Create some cards
 kanban create --title "Fix login bug" --priority high
@@ -69,7 +71,8 @@ kanban create --title "Write tests" --priority medium --label backend
 kanban list
 
 # 4. Move a card
-kanban move <CARD_ID> in_progress
+CARD_ID=$(kanban create --title "Review API docs" | awk '/^Created card:/ {print $3}')
+kanban move "$CARD_ID" in_progress
 
 # 5. Open the TUI (terminal UI)
 kanban board
@@ -151,7 +154,7 @@ Launch the terminal UI (TUI). Run from within an initialized project directory.
 ### `kanban web-ui [OPTIONS]`
 
 Launch the WebUI in a browser. Requires build with `--features webui`.
-The WebUI serves the initialized project in the current working directory. It does not switch projects in-browser; run a separate `kanban web-ui` process from another project directory to view that board. The WebUI binds to `127.0.0.1` by default. Non-loopback bind addresses are refused unless you pass `--allow-remote`, because the WebUI exposes unauthenticated mutating API routes.
+The WebUI serves the initialized project in the current working directory. It does not switch projects in-browser; run a separate `kanban web-ui` process from another project directory to view that board. The WebUI binds to `127.0.0.1` by default. Non-loopback bind addresses are refused unless you pass `--allow-remote`, because the WebUI exposes unauthenticated mutating API routes. No authentication is provided.
 
 ```bash
 kanban web-ui                                      # Default: http://127.0.0.1:9876
@@ -210,7 +213,7 @@ Start with `kanban board` (run from within an initialized project).
 
 ## WebUI
 
-Start with `kanban web-ui` from an initialized project directory (requires `--features webui`). Opens a browser-based kanban board for that single project, with live updates via Server-Sent Events. It is local-only by default; pass `--allow-remote` only when you intentionally want to expose it beyond loopback.
+Start with `kanban web-ui` from an initialized project directory (requires `--features webui`). Opens a browser-based kanban board for that single project. Mutations made through that running WebUI server are sent to other connected WebUI clients via Server-Sent Events. CLI and MCP changes are not pushed into already-open WebUI clients. It is local-only by default; pass `--allow-remote` only when you intentionally want to expose the unauthenticated API beyond loopback.
 
 ### Layout
 
@@ -233,7 +236,7 @@ Start with `kanban web-ui` from an initialized project directory (requires `--fe
 ### WebUI Features
 
 - **Single-project view** — The running server exposes the board from its current project directory
-- **Live updates** — Changes from other WebUI clients connected to the same server appear in real-time via SSE
+- **SSE updates** — Changes made through one WebUI client are broadcast to other clients connected to the same server
 - **Keyboard navigation** — Full keyboard-driven interaction (move `m`, delete `D`, edit `e`, search `/`)
 - **Modal dialogs** — Move, delete, and edit operations via popups
 - **Search** — Press `/` to search cards by title/description
@@ -267,7 +270,7 @@ When running, the WebUI exposes a REST API:
 | `DELETE` | `/api/cards/:id` | Delete a card |
 | `POST` | `/api/cards/:id/move` | Move card to column |
 | `GET` | `/api/cards/search?q=term` | Search cards |
-| `GET` | `/api/events` | SSE feed for live updates |
+| `GET` | `/api/events` | SSE feed for WebUI API mutations on this server |
 
 ## MCP Server
 
@@ -284,7 +287,7 @@ Start with `kanban server` (runs over stdio). Exposes 8 tools:
 | `search_cards` | `query` (+ optional `project`) | Search title/description |
 | `manage_board` | `action` (+ optional `project`) | Init board, add/remove columns |
 
-For MCP tools where `project` is optional, omitting it uses the MCP server's current working directory. Pass `project` to target a different initialized board, especially for mutating tools such as `update_card`, `delete_card`, and `transition_card`.
+For MCP tools where `project` is optional, omitting it uses the MCP server's current working directory. Pass `project` to target a different initialized board, especially for mutating tools such as `update_card`, `delete_card`, and `transition_card`. In the current MCP schema, `create_card` requires an explicit `project`.
 
 ### Example: Create via MCP
 
@@ -299,7 +302,7 @@ For MCP tools where `project` is optional, omitting it uses the MCP server's cur
 
 ### Card File
 
-SQLite is the authoritative store. Each card is also synchronized to `.kanban/cards/<id>.md` as an export for reading, inspection, and repair workflows; edit cards through the CLI, WebUI, or MCP API instead of editing markdown files as the source of truth.
+SQLite is the authoritative store. Each card is also synchronized to `.kanban/cards/<id>.md` as an export for reading, inspection, and repair workflows. Direct edits to these markdown files are not imported back into SQLite; edit cards through the CLI, WebUI, or MCP API.
 
 ```markdown
 ---
@@ -332,13 +335,21 @@ my-project/
 
 This project ships with an AI agent skill (`skills/kanban/SKILL.md`) covering all CLI commands, MCP tool usage, common workflows, and the card file format. Point your agent's skill directory at `skills/` in this repo.
 
+## Current Limitations
+
+- SQLite is the source of truth. Markdown card files are synchronized exports only, and direct markdown edits are not imported.
+- The WebUI is single-project per running server. Start one `kanban web-ui` process per project directory.
+- WebUI SSE updates are broadcast between clients connected to the same server after WebUI API mutations. The WebUI does not currently watch SQLite for CLI or MCP changes.
+- The WebUI has no authentication. It binds to loopback by default; non-loopback binds require explicit `--allow-remote`.
+- The TUI supports navigation, move, delete, project switching, and search. Edit card fields through the CLI, WebUI, or MCP API.
+
 ## Testing
 
 ### Unit & Integration Tests
 
 ```bash
-cargo test              # Run all tests (21 pass)
-cargo clippy --all-features  # Linting (clean build, no warnings)
+cargo test --all-features
+cargo clippy --all-features
 ```
 
 ### E2E Tests (WebUI)
@@ -346,8 +357,8 @@ cargo clippy --all-features  # Linting (clean build, no warnings)
 Requires Playwright and a Chromium browser:
 
 ```bash
-# Install dependencies
-npm install
+# Install dependencies from the tracked lockfile
+npm ci
 npx playwright install chromium
 
 # Run all E2E tests
@@ -356,7 +367,11 @@ bash e2e/run.sh
 npm run e2e
 ```
 
-12 E2E tests cover: page load, columns, cards, detail view, move/delete modals, keyboard navigation, search, messages, and empty state.
+E2E tests cover page load, columns, cards, detail view, move/delete modals, keyboard navigation, search, messages, and empty state.
+
+### Dependency Audit Notes
+
+The npm manifest and lockfile are tracked for Playwright-based E2E tests. Package metadata uses a public repository URL and the MIT license from `LICENSE`; avoid tokenized repository URLs in npm metadata. Use `npm audit` for Node development dependencies and a Rust dependency audit tool such as `cargo audit` when it is installed.
 
 ## Development
 

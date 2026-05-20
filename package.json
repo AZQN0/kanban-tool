@@ -1,7 +1,7 @@
 {
   "name": "kanban-tool",
   "version": "1.0.0",
-  "description": "A Rust-based kanban board system designed for coding agents, with both a CLI and a terminal UI (TUI). Boards are stored as SQLite databases with markdown card files, and an MCP server is included for integration with AI coding tools.",
+  "description": "A Rust-based kanban board system designed for coding agents, with a CLI, TUI, WebUI, and MCP server. Boards are stored in SQLite with synchronized markdown exports.",
   "main": "index.js",
   "directories": {
     "doc": "docs",
@@ -17,7 +17,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/AZQN0/kanban-tool/issues"
