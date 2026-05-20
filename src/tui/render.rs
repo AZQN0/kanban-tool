@@ -561,32 +561,76 @@ fn text_editor_lines(
 }
 
 fn multiline_editor_lines(value: &str, cursor: usize, max_width: usize) -> (Vec<String>, usize) {
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut cursor_line = 0;
-    let mut line_idx = 0;
+    let width = max_width.max(1);
+    let mut marked = String::new();
     let mut inserted_cursor = false;
-
     for (idx, ch) in value.chars().enumerate() {
         if idx == cursor {
-            current.push('█');
-            cursor_line = line_idx;
+            marked.push('█');
             inserted_cursor = true;
         }
-        if ch == '\n' {
-            lines.push(truncate_around_cursor(&current, max_width));
-            current.clear();
-            line_idx += 1;
-        } else {
-            current.push(ch);
-        }
+        marked.push(ch);
     }
     if !inserted_cursor {
-        current.push('█');
-        cursor_line = line_idx;
+        marked.push('█');
     }
-    lines.push(truncate_around_cursor(&current, max_width));
-    (lines, cursor_line)
+
+    let mut rows = Vec::new();
+    let mut cursor_line = 0;
+    for logical_line in marked.split('\n') {
+        let wrapped = wrap_editor_logical_line(logical_line, width);
+        for row in wrapped {
+            if row.contains('█') {
+                cursor_line = rows.len();
+            }
+            rows.push(row);
+        }
+    }
+    if rows.is_empty() {
+        rows.push("█".to_string());
+    }
+    (rows, cursor_line)
+}
+
+fn wrap_editor_logical_line(line: &str, width: usize) -> Vec<String> {
+    if line.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut rows = Vec::new();
+    let mut current = String::new();
+    for word in line.split_whitespace() {
+        let current_len = current.chars().count();
+        let word_len = word.chars().count();
+        if current_len == 0 {
+            push_editor_word(&mut rows, &mut current, word, width);
+        } else if current_len + 1 + word_len <= width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            rows.push(std::mem::take(&mut current));
+            push_editor_word(&mut rows, &mut current, word, width);
+        }
+    }
+
+    if !current.is_empty() {
+        rows.push(current);
+    }
+    if rows.is_empty() {
+        rows.push(String::new());
+    }
+    rows
+}
+
+fn push_editor_word(rows: &mut Vec<String>, current: &mut String, word: &str, width: usize) {
+    let mut remaining = word;
+    while remaining.chars().count() > width {
+        let chunk = remaining.chars().take(width).collect::<String>();
+        let consumed = chunk.len();
+        rows.push(chunk);
+        remaining = &remaining[consumed..];
+    }
+    current.push_str(remaining);
 }
 
 fn truncate_around_cursor(value: &str, max_width: usize) -> String {
@@ -1099,6 +1143,79 @@ mod tests {
         assert!(
             !rendered.contains("line 1 "),
             "top lines should scroll out when cursor is near bottom: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_multiline_text_editor_wraps_long_description_lines() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        let description = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda";
+        app.mode = Mode::Editing;
+        app.editor = Some(super::super::app::EditorState {
+            card_id: "card-1".to_string(),
+            field: super::super::app::EditorField::Description,
+            editing_text: true,
+            text_edit_original: Some(description.to_string()),
+            title: String::new(),
+            title_cursor: 0,
+            description: description.to_string(),
+            description_cursor: description.chars().count(),
+            priority: Priority::High,
+            labels_input: String::new(),
+            labels_cursor: 0,
+            dirty: false,
+        });
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            rendered.contains("lambda█"),
+            "wrapped final word and cursor should be visible: {rendered}"
+        );
+        assert!(
+            !rendered.contains('…'),
+            "multiline editor should wrap instead of horizontally scrolling: {rendered}"
+        );
+    }
+
+    #[test]
+    fn multiline_text_editor_lines_wrap_long_logical_lines() {
+        let rendered = text_editor_lines(
+            "alpha beta gamma delta epsilon zeta",
+            "alpha beta gamma delta epsilon zeta".chars().count(),
+            true,
+            18,
+            10,
+        )
+        .into_iter()
+        .map(|line| {
+            line.spans
+                .into_iter()
+                .map(|span| span.content.into_owned())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+
+        assert!(
+            rendered.len() > 1,
+            "long logical lines should wrap into multiple visual rows: {rendered:?}"
+        );
+        assert!(
+            rendered.iter().any(|line| line.contains("zeta█")),
+            "cursor should remain on wrapped final row: {rendered:?}"
+        );
+        assert!(
+            rendered.iter().all(|line| !line.contains('…')),
+            "multiline wrapping should not use horizontal ellipsis: {rendered:?}"
         );
     }
 }
