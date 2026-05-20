@@ -226,6 +226,10 @@ fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
     let Some(editor) = &app.editor else {
         return;
     };
+    if editor.editing_text {
+        render_text_editor(frame, editor, area);
+        return;
+    }
 
     let popup_area = center_rect(area, 72, 14);
     let block = Block::default()
@@ -238,24 +242,10 @@ fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(format!("{marker} {label:<12} {value}"))
     };
 
-    let description = editor_display_value(
-        &editor.description,
-        editor.description_cursor,
-        editor.field == EditorField::Description,
-        52,
-    );
-    let labels = editor_display_value(
-        &editor.labels_input,
-        editor.labels_cursor,
-        editor.field == EditorField::Labels,
-        52,
-    );
-    let title = editor_display_value(
-        &editor.title,
-        editor.title_cursor,
-        editor.field == EditorField::Title,
-        52,
-    );
+    let description =
+        editor_display_value(&editor.description, editor.description_cursor, false, 52);
+    let labels = editor_display_value(&editor.labels_input, editor.labels_cursor, false, 52);
+    let title = editor_display_value(&editor.title, editor.title_cursor, false, 52);
     let priority = editor.priority.to_string();
 
     let lines = vec![
@@ -264,10 +254,50 @@ fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
         field_line(EditorField::Priority, "Priority", priority),
         field_line(EditorField::Labels, "Labels", labels),
         Line::from(""),
-        Line::from(" Tab/Shift+Tab Field  ←/→ Cursor/Priority"),
-        Line::from(" Home/End Jump  Del Delete  Enter Save/Newline"),
-        Line::from(" Ctrl+S Save  Esc Cancel"),
+        Line::from(" ↑↓/Tab Field  Enter/e Edit field  ←/→ Priority"),
+        Line::from(" Ctrl+S Save card  Esc Cancel card"),
     ];
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .alignment(Alignment::Left)
+        .style(Style::default().fg(Color::White).bg(Color::Black));
+
+    frame.render_widget(paragraph, popup_area);
+}
+
+fn render_text_editor(frame: &mut Frame, editor: &super::app::EditorState, area: Rect) {
+    let (label, value, cursor, multiline) = match editor.field {
+        EditorField::Title => ("Title", editor.title.as_str(), editor.title_cursor, false),
+        EditorField::Description => (
+            "Description",
+            editor.description.as_str(),
+            editor.description_cursor,
+            true,
+        ),
+        EditorField::Labels => (
+            "Labels",
+            editor.labels_input.as_str(),
+            editor.labels_cursor,
+            false,
+        ),
+        EditorField::Priority => return,
+    };
+
+    let popup_area = center_rect(area, 72, if multiline { 18 } else { 8 });
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" Edit {label} "))
+        .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+
+    let mut lines = text_editor_lines(value, cursor, multiline, 64);
+    lines.push(Line::from(""));
+    let help = if multiline {
+        "Arrows Move  Enter Newline  Ctrl+S Done  Esc Cancel"
+    } else {
+        "←/→ Move  Home/End Jump  Enter/Ctrl+S Done  Esc Cancel"
+    };
+    lines.push(Line::from(help));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
@@ -480,6 +510,23 @@ fn editor_display_value(value: &str, cursor: usize, active: bool, max_width: usi
         rendered.push('█');
     }
     truncate(&rendered, max_width)
+}
+
+fn text_editor_lines(
+    value: &str,
+    cursor: usize,
+    multiline: bool,
+    max_width: usize,
+) -> Vec<Line<'static>> {
+    let rendered = editor_display_value(value, cursor, true, max_width);
+    if multiline {
+        rendered
+            .split(" / ")
+            .map(|line| Line::from(line.to_string()))
+            .collect()
+    } else {
+        vec![Line::from(rendered)]
+    }
 }
 
 /// Center a rectangle within another.
@@ -718,6 +765,8 @@ mod tests {
         app.editor = Some(super::super::app::EditorState {
             card_id: "card-1".to_string(),
             field: super::super::app::EditorField::Title,
+            editing_text: false,
+            text_edit_original: None,
             title: "Edit me".to_string(),
             title_cursor: "Edit me".chars().count(),
             description: "Description text".to_string(),
@@ -776,6 +825,8 @@ mod tests {
         app.editor = Some(super::super::app::EditorState {
             card_id: "card-1".to_string(),
             field: super::super::app::EditorField::Title,
+            editing_text: true,
+            text_edit_original: Some("Edit me".to_string()),
             title: "Edit me".to_string(),
             title_cursor: 4,
             description: "Description text".to_string(),

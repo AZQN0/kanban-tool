@@ -9,6 +9,58 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
     let modifiers = key.modifiers;
 
     if app.mode == Mode::Editing {
+        let editing_text = app
+            .editor
+            .as_ref()
+            .is_some_and(|editor| editor.editing_text);
+
+        if editing_text {
+            match key_code {
+                KeyCode::Esc => {
+                    app.cancel_text_editor();
+                }
+                KeyCode::Char('s') if modifiers == KeyModifiers::CONTROL => {
+                    app.finish_text_editor();
+                }
+                KeyCode::Left => {
+                    app.editor_move_cursor(false);
+                }
+                KeyCode::Right => {
+                    app.editor_move_cursor(true);
+                }
+                KeyCode::Down if app.editor_move_description_line(true) => {}
+                KeyCode::Up if app.editor_move_description_line(false) => {}
+                KeyCode::Backspace => {
+                    app.editor_backspace();
+                }
+                KeyCode::Delete => {
+                    app.editor_delete();
+                }
+                KeyCode::Home => {
+                    app.editor_move_cursor_to_boundary(false);
+                }
+                KeyCode::End => {
+                    app.editor_move_cursor_to_boundary(true);
+                }
+                KeyCode::Enter => {
+                    if app
+                        .editor
+                        .as_ref()
+                        .is_some_and(|editor| editor.field == EditorField::Description)
+                    {
+                        app.editor_insert_char('\n');
+                    } else {
+                        app.finish_text_editor();
+                    }
+                }
+                KeyCode::Char(c) if is_text_input_modifier(modifiers) => {
+                    app.editor_insert_char(c);
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         match key_code {
             KeyCode::Esc => {
                 app.cancel_editor();
@@ -22,11 +74,9 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             KeyCode::BackTab => {
                 app.editor_next_field(false);
             }
-            KeyCode::Down if app.editor_move_description_line(true) => {}
             KeyCode::Down => {
                 app.editor_next_field(true);
             }
-            KeyCode::Up if app.editor_move_description_line(false) => {}
             KeyCode::Up => {
                 app.editor_next_field(false);
             }
@@ -52,31 +102,13 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
                     app.editor_move_cursor(true);
                 }
             }
-            KeyCode::Backspace => {
-                app.editor_backspace();
-            }
-            KeyCode::Delete => {
-                app.editor_delete();
-            }
-            KeyCode::Home => {
-                app.editor_move_cursor_to_boundary(false);
-            }
-            KeyCode::End => {
-                app.editor_move_cursor_to_boundary(true);
-            }
+            KeyCode::Backspace => {}
+            KeyCode::Delete => {}
             KeyCode::Enter => {
-                if app
-                    .editor
-                    .as_ref()
-                    .is_some_and(|editor| editor.field == EditorField::Description)
-                {
-                    app.editor_insert_char('\n');
-                } else {
-                    app.save_editor()?;
-                }
+                app.start_text_editor();
             }
-            KeyCode::Char(c) if is_text_input_modifier(modifiers) => {
-                app.editor_insert_char(c);
+            KeyCode::Char('e') if is_text_input_modifier(modifiers) => {
+                app.start_text_editor();
             }
             _ => {}
         }
@@ -417,6 +449,11 @@ mod tests {
         app.start_editing_selected_card().unwrap();
 
         handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
             crossterm::event::KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE),
             &mut app,
         )
@@ -426,10 +463,72 @@ mod tests {
     }
 
     #[test]
+    fn editor_field_list_ignores_text_until_text_editor_is_opened() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        let editor = app.editor.as_ref().unwrap();
+        assert!(!editor.editing_text);
+        assert_eq!(editor.title, "Test card");
+    }
+
+    #[test]
+    fn e_key_opens_selected_string_field_text_editor() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert!(app.editor.as_ref().unwrap().editing_text);
+    }
+
+    #[test]
+    fn escape_in_text_editor_cancels_only_the_active_field_edit() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        let editor = app.editor.as_ref().unwrap();
+        assert_eq!(app.mode, Mode::Editing);
+        assert!(!editor.editing_text);
+        assert_eq!(editor.title, "Test card");
+    }
+
+    #[test]
     fn editor_left_right_move_cursor_and_insert_within_title() {
         let mut app = test_app_with_card();
         app.start_editing_selected_card().unwrap();
 
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
         for _ in 0..4 {
             handle_key(
                 crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
@@ -452,6 +551,11 @@ mod tests {
         let mut app = test_app_with_card();
         app.start_editing_selected_card().unwrap();
 
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
         for _ in 0..4 {
             handle_key(
                 crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
@@ -477,6 +581,11 @@ mod tests {
             editor.field = EditorField::Description;
             editor.description = "abc\ndefgh".to_string();
         }
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
 
         handle_key(
             crossterm::event::KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
@@ -513,13 +622,28 @@ mod tests {
         app.start_editing_selected_card().unwrap();
 
         handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
             crossterm::event::KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
             &mut app,
         )
         .unwrap();
 
         handle_key(
             crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
             &mut app,
         )
         .unwrap();
@@ -528,6 +652,11 @@ mod tests {
             &mut app,
         )
         .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &mut app,
+        )
+        .unwrap();
 
         handle_key(
             crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
@@ -536,6 +665,11 @@ mod tests {
         .unwrap();
         handle_key(
             crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
             &mut app,
         )
         .unwrap();

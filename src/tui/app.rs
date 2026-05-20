@@ -44,6 +44,8 @@ pub enum EditorField {
 pub struct EditorState {
     pub card_id: String,
     pub field: EditorField,
+    pub editing_text: bool,
+    pub text_edit_original: Option<String>,
     pub title: String,
     pub title_cursor: usize,
     pub description: String,
@@ -385,6 +387,8 @@ impl App {
         self.editor = Some(EditorState {
             card_id: card.id.clone(),
             field: EditorField::Title,
+            editing_text: false,
+            text_edit_original: None,
             title: card.title.clone(),
             title_cursor: card.title.chars().count(),
             description: card.description.clone(),
@@ -409,6 +413,9 @@ impl App {
         let Some(editor) = &mut self.editor else {
             return;
         };
+        if editor.editing_text {
+            return;
+        }
 
         editor.field = match (forward, &editor.field) {
             (true, EditorField::Title) => EditorField::Description,
@@ -422,10 +429,65 @@ impl App {
         };
     }
 
+    pub fn start_text_editor(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        if editor.field == EditorField::Priority {
+            return;
+        }
+
+        editor.text_edit_original = Some(match editor.field {
+            EditorField::Title => editor.title.clone(),
+            EditorField::Description => editor.description.clone(),
+            EditorField::Labels => editor.labels_input.clone(),
+            EditorField::Priority => String::new(),
+        });
+        editor.editing_text = true;
+    }
+
+    pub fn finish_text_editor(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        editor.editing_text = false;
+        editor.text_edit_original = None;
+    }
+
+    pub fn cancel_text_editor(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let Some(original) = editor.text_edit_original.take() else {
+            editor.editing_text = false;
+            return;
+        };
+
+        match editor.field {
+            EditorField::Title => {
+                editor.title = original;
+                editor.title_cursor = editor.title.chars().count();
+            }
+            EditorField::Description => {
+                editor.description = original;
+                editor.description_cursor = editor.description.chars().count();
+            }
+            EditorField::Labels => {
+                editor.labels_input = original;
+                editor.labels_cursor = editor.labels_input.chars().count();
+            }
+            EditorField::Priority => {}
+        }
+        editor.editing_text = false;
+    }
+
     pub fn editor_insert_char(&mut self, ch: char) {
         let Some(editor) = &mut self.editor else {
             return;
         };
+        if !editor.editing_text {
+            return;
+        }
 
         match editor.field {
             EditorField::Title => insert_char_at(&mut editor.title, &mut editor.title_cursor, ch),
@@ -444,6 +506,9 @@ impl App {
         let Some(editor) = &mut self.editor else {
             return;
         };
+        if !editor.editing_text {
+            return;
+        }
 
         match editor.field {
             EditorField::Title => remove_char_before(&mut editor.title, &mut editor.title_cursor),
@@ -462,6 +527,9 @@ impl App {
         let Some(editor) = &mut self.editor else {
             return;
         };
+        if !editor.editing_text {
+            return;
+        }
 
         match editor.field {
             EditorField::Title => remove_char_at(&mut editor.title, editor.title_cursor),
@@ -478,6 +546,9 @@ impl App {
         let Some(editor) = &mut self.editor else {
             return;
         };
+        if !editor.editing_text {
+            return;
+        }
 
         match editor.field {
             EditorField::Title => {
@@ -497,6 +568,9 @@ impl App {
         let Some(editor) = &mut self.editor else {
             return;
         };
+        if !editor.editing_text {
+            return;
+        }
 
         match editor.field {
             EditorField::Title => {
@@ -524,7 +598,10 @@ impl App {
         let Some(editor) = &mut self.editor else {
             return false;
         };
-        if editor.field != EditorField::Description || !editor.description.contains('\n') {
+        if !editor.editing_text
+            || editor.field != EditorField::Description
+            || !editor.description.contains('\n')
+        {
             return false;
         }
 
