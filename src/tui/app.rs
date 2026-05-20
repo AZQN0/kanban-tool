@@ -5,7 +5,7 @@ use crossterm::event::{self, Event as CEvent, KeyEventKind};
 use std::path::PathBuf;
 
 use crate::board::card::Card;
-use crate::board::store::Store;
+use crate::board::store::{CardSort, Store};
 use crate::kanban::config::{cards_dir, db_path};
 use crate::persistence::{delete_card_with_markdown, move_card_with_markdown};
 
@@ -76,27 +76,18 @@ impl App {
     pub fn new(project_path: PathBuf) -> Result<Self> {
         let db = db_path(&project_path);
         let store = Store::open(&db).context("Failed to open kanban database")?;
-        let board = store
-            .get_board(project_path.to_string_lossy().as_ref())
-            .context("Failed to get board")?;
+        let snapshot = store
+            .load_board_snapshot(project_path.to_string_lossy().as_ref(), CardSort::Priority)
+            .context("Failed to load board")?;
 
-        let columns: Vec<ColumnView> = board
+        let columns: Vec<ColumnView> = snapshot
             .columns
-            .iter()
-            .map(|col| {
-                let cards = store
-                    .list_cards(&board.id, Some(&col.id), None, None, "priority")
-                    .unwrap_or_default();
-                ColumnView {
-                    name: col.name.clone(),
-                    cards,
-                }
+            .into_iter()
+            .map(|column_cards| ColumnView {
+                name: column_cards.column.name,
+                cards: column_cards.cards,
             })
             .collect();
-
-        let all_cards: Vec<Card> = store
-            .list_cards(&board.id, None, None, None, "priority")
-            .unwrap_or_default();
 
         Ok(App {
             running: true,
@@ -104,9 +95,9 @@ impl App {
             mode: Mode::Normal,
             error: None,
             project_path,
-            board_name: board.name,
+            board_name: snapshot.board.name,
             columns,
-            all_cards,
+            all_cards: snapshot.all_cards,
             current_column_idx: 0,
             card_selection: 0,
             detail_card: None,
@@ -123,14 +114,23 @@ impl App {
     pub fn reload_current_column(&mut self) -> Result<()> {
         let db = db_path(&self.project_path);
         let store = Store::open(&db)?;
-        let board = store.get_board(self.project_path.to_string_lossy().as_ref())?;
-
-        let col = &board.columns[self.current_column_idx];
-        self.columns[self.current_column_idx].cards =
-            store.list_cards(&board.id, Some(&col.id), None, None, "priority")?;
-
-        // Update all_cards
-        self.all_cards = store.list_cards(&board.id, None, None, None, "priority")?;
+        let snapshot = store.load_board_snapshot(
+            self.project_path.to_string_lossy().as_ref(),
+            CardSort::Priority,
+        )?;
+        self.board_name = snapshot.board.name;
+        self.columns = snapshot
+            .columns
+            .into_iter()
+            .map(|column_cards| ColumnView {
+                name: column_cards.column.name,
+                cards: column_cards.cards,
+            })
+            .collect();
+        self.all_cards = snapshot.all_cards;
+        if !self.columns.is_empty() {
+            self.current_column_idx = self.current_column_idx.min(self.columns.len() - 1);
+        }
         Ok(())
     }
 
@@ -138,23 +138,24 @@ impl App {
     pub fn reload_all(&mut self) -> Result<()> {
         let db = db_path(&self.project_path);
         let store = Store::open(&db)?;
-        let board = store.get_board(self.project_path.to_string_lossy().as_ref())?;
+        let snapshot = store.load_board_snapshot(
+            self.project_path.to_string_lossy().as_ref(),
+            CardSort::Priority,
+        )?;
 
-        self.columns = board
+        self.board_name = snapshot.board.name;
+        self.columns = snapshot
             .columns
-            .iter()
-            .map(|col| {
-                let cards = store
-                    .list_cards(&board.id, Some(&col.id), None, None, "priority")
-                    .unwrap_or_default();
-                ColumnView {
-                    name: col.name.clone(),
-                    cards,
-                }
+            .into_iter()
+            .map(|column_cards| ColumnView {
+                name: column_cards.column.name,
+                cards: column_cards.cards,
             })
             .collect();
-
-        self.all_cards = store.list_cards(&board.id, None, None, None, "priority")?;
+        self.all_cards = snapshot.all_cards;
+        if !self.columns.is_empty() {
+            self.current_column_idx = self.current_column_idx.min(self.columns.len() - 1);
+        }
         Ok(())
     }
 

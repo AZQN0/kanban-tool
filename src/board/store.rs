@@ -7,7 +7,35 @@ use std::time::Duration;
 
 use super::card::{Card, Priority};
 use super::column::Column;
-use super::Comment;
+use super::{Board, Comment};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardSort {
+    Created,
+    Priority,
+}
+
+impl CardSort {
+    fn as_query_sort(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Priority => "priority",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BoardSnapshot {
+    pub board: Board,
+    pub columns: Vec<ColumnCards>,
+    pub all_cards: Vec<Card>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ColumnCards {
+    pub column: Column,
+    pub cards: Vec<Card>,
+}
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -423,6 +451,39 @@ impl Store {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    pub fn load_board_snapshot(
+        &self,
+        project_path: &str,
+        sort_by: CardSort,
+    ) -> Result<BoardSnapshot> {
+        let board = self.get_board(project_path)?;
+        let all_cards = self.list_cards(&board.id, None, None, None, sort_by.as_query_sort())?;
+        let mut cards_by_column: std::collections::HashMap<String, Vec<Card>> =
+            std::collections::HashMap::new();
+
+        for card in &all_cards {
+            cards_by_column
+                .entry(card.column_id.clone())
+                .or_default()
+                .push(card.clone());
+        }
+
+        let columns = board
+            .columns
+            .iter()
+            .map(|column| ColumnCards {
+                column: column.clone(),
+                cards: cards_by_column.remove(&column.id).unwrap_or_default(),
+            })
+            .collect();
+
+        Ok(BoardSnapshot {
+            board,
+            columns,
+            all_cards,
+        })
+    }
+
     pub fn search_cards(&self, board_id: &str, query_str: &str) -> Result<Vec<Card>> {
         let pattern = format!("%{}%", query_str);
         let mut stmt = self.conn.prepare(
@@ -591,6 +652,20 @@ mod tests {
         card
     }
 
+    fn test_card_with_column(id: &str, column_id: &str, priority: Priority) -> Card {
+        let mut card = Card::new(
+            "board-1",
+            column_id,
+            id,
+            "Description",
+            priority,
+            vec![],
+            PathBuf::from(format!("{id}.md")),
+        );
+        card.id = id.to_string();
+        card
+    }
+
     fn add_second_board(store: &mut Store) {
         store
             .create_board("board-2", "/tmp/other-project", "Other Project")
@@ -729,5 +804,83 @@ mod tests {
         store.delete_card("card-1").unwrap();
 
         assert!(store.get_card("card-1").is_err());
+    }
+
+    #[test]
+    fn load_board_snapshot_preserves_column_order_and_empty_columns() {
+        let mut store = test_store();
+        store
+            .create_card(&test_card_with_column(
+                "done-card",
+                "done",
+                Priority::Medium,
+            ))
+            .unwrap();
+
+        let snapshot = store
+            .load_board_snapshot("/tmp/test-project", CardSort::Priority)
+            .unwrap();
+
+        assert_eq!(snapshot.board.id, "board-1");
+        assert_eq!(
+            snapshot
+                .columns
+                .iter()
+                .map(|column_cards| column_cards.column.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["todo", "done"]
+        );
+        assert!(snapshot.columns[0].cards.is_empty());
+        assert_eq!(snapshot.columns[1].cards[0].id, "done-card");
+        assert_eq!(snapshot.all_cards.len(), 1);
+    }
+
+    #[test]
+    fn load_board_snapshot_sorts_cards_by_priority_within_columns() {
+        let mut store = test_store();
+        for (id, priority) in [
+            ("backlog-card", Priority::Backlog),
+            ("urgent-card", Priority::Urgent),
+            ("low-card", Priority::Low),
+            ("high-card", Priority::High),
+            ("medium-card", Priority::Medium),
+        ] {
+            store
+                .create_card(&test_card_with_column(id, "todo", priority))
+                .unwrap();
+        }
+
+        let snapshot = store
+            .load_board_snapshot("/tmp/test-project", CardSort::Priority)
+            .unwrap();
+
+        assert_eq!(
+            snapshot.columns[0]
+                .cards
+                .iter()
+                .map(|card| card.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "urgent-card",
+                "high-card",
+                "medium-card",
+                "low-card",
+                "backlog-card"
+            ]
+        );
+        assert_eq!(
+            snapshot
+                .all_cards
+                .iter()
+                .map(|card| card.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "urgent-card",
+                "high-card",
+                "medium-card",
+                "low-card",
+                "backlog-card"
+            ]
+        );
     }
 }

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use tokio::sync::broadcast;
 
 use crate::board::card::{Card, Priority};
-use crate::board::store::{Store, StoreError};
+use crate::board::store::{CardSort, Store, StoreError};
 use crate::board::Board;
 use crate::kanban::config;
 use crate::persistence::{
@@ -174,25 +174,29 @@ pub async fn list_boards(
 // ---------------------------------------------------------------------------
 
 pub async fn list_cards(State(app): State<AppState>) -> Result<Json<BoardResponse>, ApiError> {
-    let board = get_board(&app)?;
     let store = open_store(&app)?;
-
-    let columns: Vec<ColumnView> = board
-        .columns
-        .iter()
-        .map(|col| {
-            let cards = store
-                .list_cards(&board.id, Some(&col.id), None, None, "priority")
-                .unwrap_or_default();
-            ColumnView {
-                name: col.name.clone(),
-                cards,
+    let snapshot = store
+        .load_board_snapshot(&app.project_path.to_string_lossy(), CardSort::Priority)
+        .map_err(|e| {
+            let message = e.to_string();
+            if message.contains("Board not found for path") {
+                ApiError::not_found(format!("Board not found: {}", message))
+            } else {
+                store_error(e, "Failed to load board cards")
             }
+        })?;
+
+    let columns: Vec<ColumnView> = snapshot
+        .columns
+        .into_iter()
+        .map(|column_cards| ColumnView {
+            name: column_cards.column.name,
+            cards: column_cards.cards,
         })
         .collect();
 
     Ok(Json(BoardResponse {
-        name: board.name.clone(),
+        name: snapshot.board.name,
         columns,
     }))
 }
