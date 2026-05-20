@@ -1,0 +1,30 @@
+{
+  "name": "kanban-tool",
+  "version": "1.0.0",
+  "description": "A Rust-based kanban board system designed for coding agents, with a CLI, TUI, WebUI, and MCP server. Boards are stored in SQLite with synchronized markdown exports.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "npx playwright test",
+    "e2e": "bash e2e/run.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AZQN0/kanban-tool.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/AZQN0/kanban-tool/issues"
+  },
+  "homepage": "https://github.com/AZQN0/kanban-tool#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "playwright": "^1.60.0"
+  }
+}

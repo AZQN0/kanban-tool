@@ -24,10 +24,8 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             KeyCode::Backspace => {
                 app.search_query.pop();
             }
-            KeyCode::Char(c) => {
-                if modifiers == KeyModifiers::NONE {
-                    app.search_query.push(c);
-                }
+            KeyCode::Char(c) if modifiers == KeyModifiers::NONE => {
+                app.search_query.push(c);
             }
             _ => {}
         }
@@ -63,34 +61,6 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
                 app.focus = Focus::Cards;
             }
             KeyCode::Esc => {
-                app.mode = Mode::Normal;
-            }
-            _ => {}
-        }
-        return Ok(());
-    }
-
-    // If in project picker mode
-    if app.mode == Mode::ProjectPicker {
-        match key_code {
-            KeyCode::Enter => {
-                if !app.all_projects.is_empty() && app.project_picker_idx < app.all_projects.len() {
-                    let (path, _name) = &app.all_projects[app.project_picker_idx];
-                    if path != &app.project_path {
-                        // Reload the app with new project path
-                        let new_app = super::app::App::new(path.clone())?;
-                        *app = new_app;
-                    }
-                }
-                app.mode = super::app::Mode::Normal;
-            }
-            KeyCode::Char('p') if app.project_picker_idx > 0 => {
-                app.project_picker_idx -= 1;
-            }
-            KeyCode::Char('n') if app.project_picker_idx + 1 < app.all_projects.len() => {
-                app.project_picker_idx += 1;
-            }
-            KeyCode::Esc | KeyCode::Char('q') => {
                 app.mode = Mode::Normal;
             }
             _ => {}
@@ -156,26 +126,9 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             app.set_message("Move to: [b]acklog [t]odo [i]n_progress [r]eview [d]one".to_string());
         }
 
-        // e: edit selected card in $EDITOR
-        KeyCode::Char('e') => {
-            app.edit_card()?;
-            app.set_message("Editor opened. Press any key to continue...".to_string());
-            // Note: we can't actually wait for editor exit here without blocking.
-            // The reload will happen after the terminal re-renders.
-            // We'll reload on next keypress.
-            app.reload_all().ok();
-        }
-
         // d: delete selected card (confirm with y/n)
         KeyCode::Char('D') => {
             app.delete_card()?;
-        }
-
-        // P: project picker
-        KeyCode::Char('P') => {
-            app.load_projects()?;
-            app.project_picker_idx = 0;
-            app.mode = Mode::ProjectPicker;
         }
 
         // /: start search
@@ -188,4 +141,86 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    use crate::board::card::{Card, Priority};
+    use crate::tui::app::ColumnView;
+
+    fn test_app_with_card() -> App {
+        let mut card = Card::new(
+            "board-1",
+            "todo",
+            "Test card",
+            "Description",
+            Priority::Medium,
+            vec![],
+            PathBuf::from("test-card.md"),
+        );
+        card.id = "test-card".to_string();
+
+        App {
+            running: true,
+            focus: Focus::Cards,
+            mode: Mode::Normal,
+            error: None,
+            project_path: PathBuf::from("/tmp/kanban-no-edit-test"),
+            board_name: "Test Board".to_string(),
+            columns: vec![ColumnView {
+                name: "todo".to_string(),
+                cards: vec![card.clone()],
+            }],
+            all_cards: vec![card],
+            current_column_idx: 0,
+            card_selection: 0,
+            detail_card: None,
+            search_query: String::new(),
+            search_results: vec![],
+            message: None,
+            message_time: std::time::Instant::now(),
+        }
+    }
+
+    #[test]
+    fn e_key_does_not_open_markdown_export_editor() {
+        let mut app = test_app_with_card();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_ne!(
+            app.message.as_deref(),
+            Some("Editor opened. Press any key to continue...")
+        );
+    }
+
+    #[test]
+    fn readme_markdown_export_docs_do_not_advertise_tui_editing() {
+        let readme = include_str!("../../README.md");
+
+        assert!(
+            !readme.contains("edit cards through the CLI, TUI"),
+            "README still advertises TUI editing of authoritative card data"
+        );
+    }
+
+    #[test]
+    fn p_key_does_not_open_project_picker() {
+        let mut app = test_app_with_card();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('P'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.mode, Mode::Normal);
+    }
 }

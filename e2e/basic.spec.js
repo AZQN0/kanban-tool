@@ -2,7 +2,129 @@
 const { test, expect } = require("@playwright/test");
 const { withKanbanProject } = require("./helper");
 
+async function disableSSE(page) {
+  await page.addInitScript(() => {
+    window.EventSource = class {
+      constructor() {
+        throw new Error("SSE disabled for test");
+      }
+    };
+  });
+}
+
 test.describe("Kanban WebUI E2E Tests", () => {
+  test("does not advertise project switching in the single-project WebUI", async ({ page }) => {
+    await withKanbanProject({
+      fn: async (tmpDir, port) => {
+        await page.goto(`http://127.0.0.1:${port}/`);
+
+        await expect(page.locator("#project-modal")).toHaveCount(0);
+        const bottomText = await page.locator("#bottom-bar").textContent();
+        expect(bottomText).not.toContain("Project");
+
+        await page.keyboard.press("Shift+P");
+        await expect(page.locator("#project-modal")).toHaveCount(0);
+      },
+    });
+  });
+
+  test("updates a second page when a card moves in another page", async ({ browser }) => {
+    await withKanbanProject({
+      fn: async (tmpDir, port) => {
+        const pageA = await browser.newPage();
+        const pageB = await browser.newPage();
+        try {
+          await pageA.goto(`http://127.0.0.1:${port}/`);
+          await pageB.goto(`http://127.0.0.1:${port}/`);
+
+          await expect(pageB.locator("#cards-list")).toContainText("Test Card 1", { timeout: 10000 });
+          await expect(pageB.locator("body")).toHaveAttribute("data-sse", "connected");
+
+          const cardId = await pageA.evaluate(async () => {
+            const response = await fetch("/api/cards");
+            const board = await response.json();
+            return board.columns
+              .flatMap((column) => column.cards)
+              .find((card) => card.title === "Test Card 1").id;
+          });
+
+          await pageA.evaluate(async (id) => {
+            const response = await fetch(`/api/cards/${id}/move`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ column: "done" }),
+            });
+            if (!response.ok) {
+              throw new Error(await response.text());
+            }
+          }, cardId);
+
+          await expect(pageB.locator("#cards-list")).not.toContainText("Test Card 1", { timeout: 1500 });
+          await expect(pageB.locator("#columns-list")).toContainText("done (1)");
+        } finally {
+          await pageA.close();
+          await pageB.close();
+        }
+      },
+    });
+  });
+
+  test("refreshes the current page after moving a card when SSE is unavailable", async ({ page }) => {
+    await withKanbanProject({
+      fn: async (tmpDir, port) => {
+        await disableSSE(page);
+        await page.goto(`http://127.0.0.1:${port}/`);
+
+        await expect(page.locator("#cards-list")).toContainText("Test Card 1", { timeout: 10000 });
+        await page.locator("#cards-list .card-item").filter({ hasText: "Test Card 1" }).click();
+        await page.keyboard.press("m");
+        await expect(page.locator("#move-modal:not(.hidden)")).toBeVisible({ timeout: 3000 });
+        await page.locator("#move-modal .move-col").filter({ hasText: "done" }).first().click();
+
+        await expect(page.locator("#cards-list")).not.toContainText("Test Card 1", { timeout: 1500 });
+        await expect(page.locator("#columns-list")).toContainText("done (1)");
+      },
+    });
+  });
+
+  test("refreshes the current page after deleting a card when SSE is unavailable", async ({ page }) => {
+    await withKanbanProject({
+      fn: async (tmpDir, port) => {
+        await disableSSE(page);
+        await page.goto(`http://127.0.0.1:${port}/`);
+
+        await expect(page.locator("#cards-list")).toContainText("Test Card 1", { timeout: 10000 });
+        await page.locator("#cards-list .card-item").filter({ hasText: "Test Card 1" }).click();
+        await page.evaluate(() => {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "D", code: "KeyD", bubbles: true }));
+        });
+        await expect(page.locator("#delete-modal:not(.hidden)")).toBeVisible({ timeout: 3000 });
+        await page.locator("#delete-yes").click();
+
+        await expect(page.locator("#cards-list")).not.toContainText("Test Card 1", { timeout: 1500 });
+        await expect(page.locator("#card-count")).toContainText("Cards: 2");
+      },
+    });
+  });
+
+  test("refreshes the current page after editing a card when SSE is unavailable", async ({ page }) => {
+    await withKanbanProject({
+      fn: async (tmpDir, port) => {
+        await disableSSE(page);
+        await page.goto(`http://127.0.0.1:${port}/`);
+
+        await expect(page.locator("#cards-list")).toContainText("Test Card 1", { timeout: 10000 });
+        await page.locator("#cards-list .card-item").filter({ hasText: "Test Card 1" }).click();
+        await page.keyboard.press("e");
+        await page.locator("#edit-title").fill("Edited Card");
+        await page.locator("#edit-save").click();
+
+        await expect(page.locator("#cards-list")).toContainText("Edited Card", { timeout: 1500 });
+        await expect(page.locator("#cards-list")).not.toContainText("Test Card 1");
+      },
+    });
+  });
+
   test("page loads and displays project name", async ({ page }) => {
     await withKanbanProject({
       fn: async (tmpDir, port) => {

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::board::store::Store;
 use crate::kanban::config::{cards_dir, db_path, is_initialized};
-use crate::markdown::writer::remove_card_file;
+use crate::persistence::delete_card_with_markdown;
 use crate::DeleteArgs;
 
 /// Delete a card by ID.
@@ -12,7 +12,10 @@ pub fn delete(args: &DeleteArgs) -> Result<()> {
 
     let (mut store, cards_dir_path) = if let Some(ref p) = project_path {
         if !is_initialized(p) {
-            anyhow::bail!("Project at {:?} is not initialized. Run `kanban init` first.", p);
+            anyhow::bail!(
+                "Project at {:?} is not initialized. Run `kanban init` first.",
+                p
+            );
         }
         let db = db_path(p);
         let store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
@@ -27,17 +30,8 @@ pub fn delete(args: &DeleteArgs) -> Result<()> {
         (store, cards_dir(&cwd))
     };
 
-    // Verify the card exists
-    let card = store.get_card(&args.card_id)
-        .context(format!("Card not found: {}", args.card_id))?;
-
-    // Remove markdown file
-    remove_card_file(&card.id, &cards_dir_path)
-        .context("Failed to remove card markdown file")?;
-
-    // Delete from SQLite
-    store.delete_card(&card.id)
-        .context("Failed to delete card from database")?;
+    let card = delete_card_with_markdown(&mut store, &args.card_id, &cards_dir_path)
+        .context("Failed to delete card and markdown export")?;
 
     println!("Deleted card: {}", card.id);
     println!("  Title: {}", card.title);

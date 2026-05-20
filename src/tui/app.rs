@@ -5,8 +5,9 @@ use crossterm::event::{self, Event as CEvent, KeyEventKind};
 use std::path::PathBuf;
 
 use crate::board::card::Card;
-use crate::board::store::Store;
+use crate::board::store::{CardSort, Store};
 use crate::kanban::config::{cards_dir, db_path};
+use crate::persistence::{delete_card_with_markdown, move_card_with_markdown};
 
 use super::events;
 use super::render;
@@ -26,7 +27,6 @@ pub enum Mode {
     Moving,
     Searching,
     SearchingResult,
-    ProjectPicker,
 }
 
 /// The main application state.
@@ -55,10 +55,6 @@ pub struct App {
     pub search_query: String,
     pub search_results: Vec<Card>,
 
-    // Project picker
-    pub all_projects: Vec<(PathBuf, String)>,
-    pub project_picker_idx: usize,
-
     // Message display (temporary)
     pub message: Option<String>,
     pub message_time: std::time::Instant,
@@ -74,22 +70,19 @@ pub struct ColumnView {
 impl App {
     pub fn new(project_path: PathBuf) -> Result<Self> {
         let db = db_path(&project_path);
-        let store = Store::open(&db)
-            .context("Failed to open kanban database")?;
-        let board = store.get_board(project_path.to_string_lossy().as_ref())
-            .context("Failed to get board")?;
+        let store = Store::open(&db).context("Failed to open kanban database")?;
+        let snapshot = store
+            .load_board_snapshot(project_path.to_string_lossy().as_ref(), CardSort::Priority)
+            .context("Failed to load board")?;
 
-        let columns: Vec<ColumnView> = board.columns.iter().map(|col| {
-            let cards = store.list_cards(&board.id, Some(&col.id), None, None, "priority")
-                .unwrap_or_default();
-            ColumnView {
-                name: col.name.clone(),
-                cards,
-            }
-        }).collect();
-
-        let all_cards: Vec<Card> = store.list_cards(&board.id, None, None, None, "priority")
-            .unwrap_or_default();
+        let columns: Vec<ColumnView> = snapshot
+            .columns
+            .into_iter()
+            .map(|column_cards| ColumnView {
+                name: column_cards.column.name,
+                cards: column_cards.cards,
+            })
+            .collect();
 
         Ok(App {
             running: true,
@@ -97,16 +90,14 @@ impl App {
             mode: Mode::Normal,
             error: None,
             project_path,
-            board_name: board.name,
+            board_name: snapshot.board.name,
             columns,
-            all_cards,
+            all_cards: snapshot.all_cards,
             current_column_idx: 0,
             card_selection: 0,
             detail_card: None,
             search_query: String::new(),
             search_results: Vec::new(),
-            all_projects: Vec::new(),
-            project_picker_idx: 0,
             message: None,
             message_time: std::time::Instant::now(),
         })
@@ -116,14 +107,23 @@ impl App {
     pub fn reload_current_column(&mut self) -> Result<()> {
         let db = db_path(&self.project_path);
         let store = Store::open(&db)?;
-        let board = store.get_board(self.project_path.to_string_lossy().as_ref())?;
-
-        let col = &board.columns[self.current_column_idx];
-        self.columns[self.current_column_idx].cards =
-            store.list_cards(&board.id, Some(&col.id), None, None, "priority")?;
-
-        // Update all_cards
-        self.all_cards = store.list_cards(&board.id, None, None, None, "priority")?;
+        let snapshot = store.load_board_snapshot(
+            self.project_path.to_string_lossy().as_ref(),
+            CardSort::Priority,
+        )?;
+        self.board_name = snapshot.board.name;
+        self.columns = snapshot
+            .columns
+            .into_iter()
+            .map(|column_cards| ColumnView {
+                name: column_cards.column.name,
+                cards: column_cards.cards,
+            })
+            .collect();
+        self.all_cards = snapshot.all_cards;
+        if !self.columns.is_empty() {
+            self.current_column_idx = self.current_column_idx.min(self.columns.len() - 1);
+        }
         Ok(())
     }
 
@@ -131,18 +131,24 @@ impl App {
     pub fn reload_all(&mut self) -> Result<()> {
         let db = db_path(&self.project_path);
         let store = Store::open(&db)?;
-        let board = store.get_board(self.project_path.to_string_lossy().as_ref())?;
+        let snapshot = store.load_board_snapshot(
+            self.project_path.to_string_lossy().as_ref(),
+            CardSort::Priority,
+        )?;
 
-        self.columns = board.columns.iter().map(|col| {
-            let cards = store.list_cards(&board.id, Some(&col.id), None, None, "priority")
-                .unwrap_or_default();
-            ColumnView {
-                name: col.name.clone(),
-                cards,
-            }
-        }).collect();
-
-        self.all_cards = store.list_cards(&board.id, None, None, None, "priority")?;
+        self.board_name = snapshot.board.name;
+        self.columns = snapshot
+            .columns
+            .into_iter()
+            .map(|column_cards| ColumnView {
+                name: column_cards.column.name,
+                cards: column_cards.cards,
+            })
+            .collect();
+        self.all_cards = snapshot.all_cards;
+        if !self.columns.is_empty() {
+            self.current_column_idx = self.current_column_idx.min(self.columns.len() - 1);
+        }
         Ok(())
     }
 
@@ -171,11 +177,17 @@ impl App {
     /// Move to the next/previous column.
     pub fn column_next(&mut self, forward: bool) {
         let cols = self.columns.len();
-        if cols == 0 { return; }
+        if cols == 0 {
+            return;
+        }
         if forward {
             self.current_column_idx = (self.current_column_idx + 1) % cols;
         } else {
-            self.current_column_idx = if self.current_column_idx == 0 { cols - 1 } else { self.current_column_idx - 1 };
+            self.current_column_idx = if self.current_column_idx == 0 {
+                cols - 1
+            } else {
+                self.current_column_idx - 1
+            };
         }
         self.card_selection = 0;
         self.detail_card = None;
@@ -184,7 +196,9 @@ impl App {
     /// Navigate within the current cards list.
     pub fn card_nav(&mut self, forward: bool) {
         let cards = self.current_cards();
-        if cards.is_empty() { return; }
+        if cards.is_empty() {
+            return;
+        }
         let card_count = cards.len();
         let current = self.card_selection;
         let new_idx = if forward {
@@ -216,25 +230,30 @@ impl App {
         let board = store.get_board(self.project_path.to_string_lossy().as_ref())?;
 
         // Find the target column ID
-        let target_col = board.columns.iter()
+        let target_col = board
+            .columns
+            .iter()
             .find(|c| c.name == column_name)
             .ok_or_else(|| anyhow::anyhow!("Column '{}' not found", column_name))?;
 
-        // Update in DB
-        store.transition_card(&card_id, &target_col.id)?;
-
-        // Update markdown file
-        let card = &cards[self.card_selection];
-        let mut updated_card = card.clone();
-        updated_card.column_id = target_col.id.clone();
-        crate::markdown::writer::sync_card(&updated_card, &cards_dir(&self.project_path))
-            .ok();
+        let target_col_id = target_col.id.clone();
+        let target_col_name = target_col.name.clone();
+        move_card_with_markdown(
+            &mut store,
+            &card_id,
+            &target_col_id,
+            &cards_dir(&self.project_path),
+        )?;
 
         // Reload current column
         self.reload_all()?;
 
         // If moved out of current column, find it in new column
-        let new_col_idx = self.columns.iter().position(|c| c.name == target_col.name).unwrap_or(0);
+        let new_col_idx = self
+            .columns
+            .iter()
+            .position(|c| c.name == target_col_name)
+            .unwrap_or(0);
         self.current_column_idx = new_col_idx;
         let col_cards = &self.columns[new_col_idx].cards;
         self.card_selection = col_cards.iter().position(|c| c.id == card_id).unwrap_or(0);
@@ -255,9 +274,7 @@ impl App {
 
         let db = db_path(&self.project_path);
         let mut store = Store::open(&db)?;
-        store.delete_card(&card_id)?;
-        crate::markdown::writer::remove_card_file(&card_id, &cards_dir(&self.project_path))
-            .ok();
+        delete_card_with_markdown(&mut store, &card_id, &cards_dir(&self.project_path))?;
 
         // Reload
         self.reload_all()?;
@@ -265,24 +282,6 @@ impl App {
         self.detail_card = None;
         self.card_selection = 0;
         self.set_message(format!("Deleted '{}'", card_title));
-        Ok(())
-    }
-
-    /// Open the selected card in $EDITOR.
-    pub fn edit_card(&self) -> Result<()> {
-        let cards = self.current_cards();
-        if self.card_selection >= cards.len() {
-            return Ok(());
-        }
-        let card = &cards[self.card_selection];
-        let card_path = cards_dir(&self.project_path).join(format!("{}.md", card.id));
-
-        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
-        std::process::Command::new(editor)
-            .arg(&card_path)
-            .spawn()
-            .context("Failed to open editor")?;
-
         Ok(())
     }
 
@@ -301,17 +300,6 @@ impl App {
         if let Some(card) = self.search_results.first() {
             self.detail_card = Some(card.clone());
         }
-        Ok(())
-    }
-
-    /// Load all projects from the database.
-    pub fn load_projects(&mut self) -> Result<()> {
-        let db = db_path(&self.project_path);
-        let store = Store::open(&db)?;
-        let boards = store.list_boards()?;
-        self.all_projects = boards.iter().map(|b| {
-            (PathBuf::from(&b.project_path), b.name.clone())
-        }).collect();
         Ok(())
     }
 

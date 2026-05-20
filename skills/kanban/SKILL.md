@@ -33,14 +33,14 @@ Each project has its own board stored in `.kanban/`:
 ```
 my-project/
 ├── .kanban/kanban.db          # SQLite database
-├── .kanban/cards/             # Markdown card files (one per card)
+├── .kanban/cards/             # Synchronized markdown card exports
 ├── .kanban/columns/           # Column definitions
 │
 └── default columns:
     backlog → todo → in_progress → review → done
 ```
 
-Cards are stored as both markdown files (`.kanban/cards/<uuid>.md`) and in SQLite.
+Cards are stored authoritatively in SQLite. Markdown files (`.kanban/cards/<uuid>.md`) are synchronized exports for reading, inspection, and repair workflows. Direct edits to markdown exports are not imported back into SQLite; edit cards through the CLI, WebUI, or MCP API.
 
 ## CLI Commands
 
@@ -86,7 +86,7 @@ kanban list --project /path/to/project
 kanban move <CARD_ID> <COLUMN>
 ```
 
-Updates both the database and the markdown file.
+Updates SQLite and refreshes the synchronized markdown export.
 
 ### Get a Card
 
@@ -115,7 +115,7 @@ Update any combination of fields. All options are optional — only specify the 
 kanban delete <CARD_ID>
 ```
 
-Removes the card from both SQLite and the markdown file system.
+Removes the card from SQLite and removes its synchronized markdown export.
 
 ### Search Cards
 
@@ -137,12 +137,12 @@ Launches a full keyboard-driven terminal UI with 3-panel layout (columns / cards
 ### WebUI (Browser-based)
 
 ```bash
-kanban webui                     # http://127.0.0.1:9876
-kanban webui --port 8080         # Custom port
-kanban webui --bind 0.0.0.0      # Bind all interfaces
+kanban web-ui                                      # http://127.0.0.1:9876
+kanban web-ui --port 8080                          # Custom local port
+kanban web-ui --bind 0.0.0.0 --allow-remote        # Explicit remote bind
 ```
 
-Requires build with `--features webui`. Provides a browser-based kanban board with live updates via SSE, keyboard navigation, modals, and search. See the [README](../../README.md) for WebUI key bindings and REST API docs.
+Requires build with `--features webui`. Provides a browser-based kanban board with SSE updates between clients connected to the same running server, keyboard navigation, modals, and search. It binds to `127.0.0.1` by default; non-loopback bind addresses require `--allow-remote`. No authentication is provided. See the [README](../../README.md) for WebUI key bindings and REST API docs.
 
 ### MCP Server
 
@@ -160,12 +160,14 @@ Start with `kanban server` (runs over stdio). Available tools:
 |------|------|-------------|
 | `create_card` | `project`, `title` (+ optional `description`, `priority`, `column`, `labels`) | Create a new card |
 | `get_card` | `card_id` (+ optional `project`) | Get full card data |
-| `update_card` | `card_id` (+ optional fields) | Update card fields |
-| `delete_card` | `card_id` | Delete a card |
-| `list_cards` | optional filters | List cards |
-| `transition_card` | `card_id`, `column` | Move card to column |
+| `update_card` | `card_id` (+ optional `project` and fields) | Update card fields |
+| `delete_card` | `card_id` (+ optional `project`) | Delete a card |
+| `list_cards` | optional filters, including `project` | List cards |
+| `transition_card` | `card_id`, `column` (+ optional `project`) | Move card to column |
 | `search_cards` | `query` (+ optional `project`) | Search cards |
 | `manage_board` | `action` (+ optional fields) | Init board, add/remove columns |
+
+For MCP tools where `project` is optional, omitting it uses the MCP server's current working directory. Pass `project` when operating on another initialized board, especially for `update_card`, `delete_card`, and `transition_card`. In the current MCP schema, `create_card` requires an explicit `project`.
 
 ## Common Workflows
 
@@ -229,7 +231,7 @@ For a visual terminal experience:
 ```bash
 kanban board
 # Navigate with j/k (up/down), h/l (panel focus)
-# Press m to move, D to delete, e to edit
+# Press m to move, D to delete, / to search
 ```
 
 ### 7. Use the WebUI
@@ -237,7 +239,7 @@ kanban board
 For a browser-based experience (requires `--features webui`):
 
 ```bash
-kanban webui --port 8080
+kanban web-ui --port 8080
 # Navigate with j/k, h/l, m (move), D (delete), / (search)
 ```
 
@@ -255,15 +257,15 @@ Use the MCP server tools programmatically. Example:
 ## Tips
 
 - **Card IDs** are UUIDs returned by `kanban create`. Keep them handy for `move`, `get`, `update`, `delete`, and other operations.
-- **Markdown cards** are human-editable — you can edit `.kanban/cards/<id>.md` directly and the DB stays in sync on next read.
-- **Multi-project** — use `--project` flag or `kanban board` (TUI) to switch between boards.
+- **Markdown cards** are synchronized exports, not the authoritative edit path. Direct markdown edits are not imported; use CLI, WebUI, or MCP writes to change cards.
+- **Multi-project** — use the `--project` flag for CLI commands, or start `kanban board` from the initialized project directory you want to view.
 - **Labels** — add multiple with repeated `--label` flags for categorization. Multiple labels filter as AND (card must have all specified labels).
 - **Priority ordering** — `urgent` > `high` > `medium` > `low` > `backlog`.
-- **Three interfaces** — Use CLI for scripting, TUI for terminal work, WebUI for browser-based collaboration, and MCP for AI agent integration.
+- **Interfaces** — Use CLI for scripting, TUI for terminal work, WebUI for browser-based collaboration, and MCP for AI agent integration.
 
 ## Card File Format
 
-Each card is a markdown file with YAML frontmatter:
+Each card is synchronized to a markdown export with YAML frontmatter:
 
 ```markdown
 ---
@@ -288,7 +290,7 @@ When the WebUI server is running, it exposes these REST endpoints:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/boards` | List all boards |
+| `GET` | `/api/boards` | List boards stored in the current project's database |
 | `GET` | `/api/cards` | Get all cards grouped by column |
 | `GET` | `/api/cards/:id` | Get a single card |
 | `POST` | `/api/cards` | Create a new card |
@@ -296,7 +298,7 @@ When the WebUI server is running, it exposes these REST endpoints:
 | `DELETE` | `/api/cards/:id` | Delete a card |
 | `POST` | `/api/cards/:id/move` | Move card to column |
 | `GET` | `/api/cards/search?q=term` | Search cards |
-| `GET` | `/api/events` | SSE feed for live updates |
+| `GET` | `/api/events` | SSE feed for WebUI API mutations on this server |
 
 Example — create a card via REST:
 

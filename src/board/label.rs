@@ -16,7 +16,10 @@ pub fn extract_labels(cards: &[Card]) -> Vec<String> {
 
 /// Check if any card has the given label.
 pub fn cards_with_label<'a>(cards: &'a [Card], label: &str) -> Vec<&'a Card> {
-    cards.iter().filter(|c| c.labels.iter().any(|l| l == label)).collect()
+    cards
+        .iter()
+        .filter(|c| c.labels.iter().any(|l| l == label))
+        .collect()
 }
 
 /// Filter cards by a list of labels (cards must have ALL specified labels).
@@ -24,7 +27,8 @@ pub fn filter_by_labels<'a>(cards: &'a [Card], labels: &[String]) -> Vec<&'a Car
     if labels.is_empty() {
         return cards.iter().collect();
     }
-    cards.iter().filter(|c| {
-        labels.iter().all(|l| c.labels.contains(l))
-    }).collect()
+    cards
+        .iter()
+        .filter(|c| labels.iter().all(|l| c.labels.contains(l)))
+        .collect()
 }

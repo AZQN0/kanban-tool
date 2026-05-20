@@ -15,18 +15,20 @@ const COLUMNS = ["backlog", "todo", "in_progress", "review", "done"];
 // ---------------------------------------------------------------------------
 const state = {
   focus: "cards",           // 'columns' | 'cards' | 'detail'
-  boards: [],               // [{id, name, project_path}]
+  boardName: "Loading",
   columns: [],              // [{name, cards: [{...}]}]
   allCards: [],             // flat list
   currentColumnIdx: 0,
   cardSelection: 0,
   detailCard: null,
-  mode: "normal",           // 'normal' | 'moving' | 'searching' | 'projectPicker' | 'editing'
+  mode: "normal",           // 'normal' | 'moving' | 'searching' | 'editing'
   searchQuery: "",
   message: null,
   messageTime: 0,
-  projectPickerIdx: 0,
   searchingResults: [],
+  sse: null,
+  sseReconnectTimer: null,
+  sseReconnectDelay: 1000,
 };
 
 // ---------------------------------------------------------------------------
@@ -69,21 +71,13 @@ const API = {
 async function loadBoard() {
   try {
     const data = await API.get("/api/cards");
+    state.boardName = data.name || "Board";
     state.columns = data.columns;
     state.allCards = state.columns.flatMap((c) => c.cards);
     state.currentColumnIdx = Math.min(state.currentColumnIdx, state.columns.length - 1);
     render();
   } catch (e) {
     showMessage("Error loading board: " + e.message);
-  }
-}
-
-async function loadProjects() {
-  try {
-    state.boards = await API.get("/api/boards");
-  } catch (e) {
-    // Not critical — can still work with a single board
-    state.boards = [];
   }
 }
 
@@ -114,6 +108,7 @@ async function searchCards(query) {
 async function moveCard(cardId, targetColumn) {
   try {
     await API.post(`/api/cards/${cardId}/move`, { column: targetColumn });
+    await refreshAll();
     showMessage(`Moved card to ${targetColumn}`);
   } catch (e) {
     showMessage(`Error: ${e.message}`);
@@ -125,6 +120,7 @@ async function deleteCard(cardId, title) {
     await API.del(`/api/cards/${cardId}`);
     state.detailCard = null;
     state.cardSelection = 0;
+    await refreshAll();
     showMessage(`Deleted '${title}'`);
   } catch (e) {
     showMessage(`Error: ${e.message}`);
@@ -136,6 +132,7 @@ async function updateCard(cardId, updates) {
     await API.patch(`/api/cards/${cardId}`, updates);
     state.mode = "normal";
     state.detailCard = null;
+    await refreshAll();
     showMessage("Card updated");
   } catch (e) {
     showMessage(`Error: ${e.message}`);
@@ -154,14 +151,11 @@ function render() {
 }
 
 function renderTopBar() {
-  const projectName = state.columns.length > 0
-    ? (state.boards.find((b) => b.id === state.columns[0]?.cards[0]?.board_id)?.name || "Board")
-    : "Loading";
   const total = state.allCards.length;
   const searchInput = document.getElementById("search-input");
   const cardCount = document.getElementById("card-count");
 
-  document.getElementById("project-name").textContent = `📋 ${projectName}`;
+  document.getElementById("project-name").textContent = `📋 ${state.boardName}`;
   cardCount.textContent = `Cards: ${total}`;
   searchInput.classList.toggle("hidden", state.mode !== "searching");
 }
@@ -414,33 +408,6 @@ function openDeleteModal() {
   showModal("delete-modal");
 }
 
-function openProjectPicker() {
-  if (state.boards.length === 0) {
-    showMessage("No other projects found");
-    return;
-  }
-
-  const container = document.getElementById("project-list");
-  container.innerHTML = "";
-
-  state.boards.forEach((board, i) => {
-    const div = document.createElement("div");
-    div.className = `project-item${i === state.projectPickerIdx ? " active" : ""}`;
-    const pathShort = board.project_path.replace(/^.*\//, "");
-    div.innerHTML = `
-      <div>${board.name}</div>
-      <div class="project-path">${board.project_path}</div>
-    `;
-    div.addEventListener("click", () => {
-      state.projectPickerIdx = i;
-      window.location.reload();
-    });
-    container.appendChild(div);
-  });
-
-  showModal("project-modal");
-}
-
 function openSearchMode() {
   state.mode = "searching";
   state.searchQuery = "";
@@ -468,55 +435,64 @@ function showMessage(msg) {
 // ---------------------------------------------------------------------------
 // SSE connection
 // ---------------------------------------------------------------------------
-function connectSSE() {
-  try {
-    const evtSource = new EventSource("/api/events");
+function setSSEStatus(status) {
+  document.body.dataset.sse = status;
+}
 
-    evtSource.addEventListener("card_created", (e) => {
+function connectSSE() {
+  if (state.sse && state.sse.readyState !== EventSource.CLOSED) {
+    return;
+  }
+  if (state.sseReconnectTimer) {
+    clearTimeout(state.sseReconnectTimer);
+    state.sseReconnectTimer = null;
+  }
+
+  try {
+    setSSEStatus("connecting");
+    const evtSource = new EventSource("/api/events");
+    state.sse = evtSource;
+
+    evtSource.onopen = () => {
+      state.sseReconnectDelay = 1000;
+      setSSEStatus("connected");
+    };
+
+    evtSource.addEventListener("card_created", () => {
       refreshCurrentColumn();
     });
 
-    evtSource.addEventListener("card_moved", (e) => {
+    evtSource.addEventListener("card_moved", () => {
       refreshAll();
     });
 
-    evtSource.addEventListener("card_updated", (e) => {
+    evtSource.addEventListener("card_updated", () => {
       refreshCurrentColumn();
     });
 
-    evtSource.addEventListener("card_deleted", (e) => {
+    evtSource.addEventListener("card_deleted", () => {
       refreshCurrentColumn();
     });
 
     evtSource.onerror = () => {
       console.log("SSE connection lost, reconnecting...");
-    };
+      setSSEStatus("reconnecting");
+      evtSource.close();
+      if (state.sse === evtSource) {
+        state.sse = null;
+      }
 
-    // Mark as connected
-    evtSource.close(); // We'll reconnect in the interval below for simplicity
+      const delay = state.sseReconnectDelay;
+      state.sseReconnectDelay = Math.min(state.sseReconnectDelay * 2, 30000);
+      state.sseReconnectTimer = setTimeout(() => {
+        state.sseReconnectTimer = null;
+        connectSSE();
+      }, delay);
+    };
   } catch (e) {
+    setSSEStatus("unavailable");
     console.log("SSE not available:", e);
   }
-
-  // Polling fallback: refresh every 3 seconds
-  setInterval(async () => {
-    try {
-      const data = await API.get("/api/cards");
-      const currentCardsStr = JSON.stringify(state.columns.map((c) => ({
-        name: c.name,
-        ids: c.cards.map((c2) => c2.id),
-      })));
-      const newDataStr = JSON.stringify(data.columns.map((c) => ({
-        name: c.name,
-        ids: c.cards.map((c2) => c2.id),
-      })));
-      if (currentCardsStr !== newDataStr) {
-        await loadBoard();
-      }
-    } catch (e) {
-      // Silently fail
-    }
-  }, 3000);
 }
 
 // ---------------------------------------------------------------------------
@@ -583,27 +559,6 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // Project picker
-  if (document.getElementById("project-modal").classList.contains("hidden") === false) {
-    if (e.key === "p") {
-      state.projectPickerIdx = Math.max(0, state.projectPickerIdx - 1);
-      renderProjectPicker();
-    }
-    if (e.key === "n") {
-      state.projectPickerIdx = Math.min(state.boards.length - 1, state.projectPickerIdx + 1);
-      renderProjectPicker();
-    }
-    if (e.key === "Enter") {
-      if (state.boards.length > 0 && state.projectPickerIdx < state.boards.length) {
-        window.location.reload();
-      }
-    }
-    if (e.key === "Escape" || e.key === "q") {
-      hideModal("project-modal");
-    }
-    return;
-  }
-
   // Normal mode
   switch (e.key) {
     case "q":
@@ -646,9 +601,6 @@ document.addEventListener("keydown", (e) => {
       break;
     case "D":
       openDeleteModal();
-      break;
-    case "P":
-      openProjectPicker();
       break;
     case "/":
       openSearchMode();
@@ -740,14 +692,6 @@ function openEditMode() {
   render();
 }
 
-function renderProjectPicker() {
-  const container = document.getElementById("project-list");
-  const items = container.querySelectorAll(".project-item");
-  items.forEach((item, i) => {
-    item.classList.toggle("active", i === state.projectPickerIdx);
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Drag and drop — cards panel as drop target
 // ---------------------------------------------------------------------------
@@ -807,7 +751,6 @@ function escapeAttr(str) {
 async function init() {
   try {
     await loadBoard();
-    await loadProjects();
     connectSSE();
     showMessage("Ready");
   } catch (e) {

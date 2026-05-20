@@ -21,14 +21,16 @@ impl Column {
     }
 
     pub fn default_columns(board_id: &str) -> Vec<Self> {
-        DEFAULT_COLUMNS.iter().enumerate().map(|(i, name)| {
-            Self {
+        DEFAULT_COLUMNS
+            .iter()
+            .enumerate()
+            .map(|(i, name)| Self {
                 id: uuid::Uuid::new_v4().to_string(),
                 board_id: board_id.to_string(),
                 name: name.to_string(),
                 sort_order: i as u32,
-            }
-        }).collect()
+            })
+            .collect()
     }
 }
 

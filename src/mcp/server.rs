@@ -1,7 +1,10 @@
 use rust_mcp_sdk::{
     error::SdkResult,
     mcp_server::{server_runtime, McpServerOptions},
-    schema::{Implementation, InitializeResult, ProtocolVersion, ServerCapabilities, ServerCapabilitiesTools},
+    schema::{
+        Implementation, InitializeResult, ProtocolVersion, ServerCapabilities,
+        ServerCapabilitiesTools,
+    },
     McpServer, StdioTransport, ToMcpServerHandler, TransportOptions,
 };
 
@@ -16,7 +19,9 @@ pub async fn run_server() -> SdkResult<()> {
             name: "kanban".into(),
             version: "0.1.0".into(),
             title: Some("Kanban Board MCP Server".into()),
-            description: Some("A kanban board system for coding agents across multiple projects".into()),
+            description: Some(
+                "A kanban board system for coding agents across multiple projects".into(),
+            ),
             icons: vec![],
             website_url: Some("https://github.com/user/kanban-tool".into()),
         },

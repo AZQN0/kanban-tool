@@ -11,11 +11,15 @@ pub fn get(args: &GetArgs) -> Result<()> {
 
     let (store, card) = if let Some(ref p) = project_path {
         if !is_initialized(p) {
-            anyhow::bail!("Project at {:?} is not initialized. Run `kanban init` first.", p);
+            anyhow::bail!(
+                "Project at {:?} is not initialized. Run `kanban init` first.",
+                p
+            );
         }
         let db = db_path(p);
         let store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
-        let card = store.get_card(&args.card_id)
+        let card = store
+            .get_card(&args.card_id)
             .context(format!("Card not found: {}", args.card_id))?;
         (store, card)
     } else {
@@ -25,7 +29,8 @@ pub fn get(args: &GetArgs) -> Result<()> {
         }
         let db = db_path(&cwd);
         let store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
-        let card = store.get_card(&args.card_id)
+        let card = store
+            .get_card(&args.card_id)
             .context(format!("Card not found: {}", args.card_id))?;
         (store, card)
     };
@@ -49,7 +54,10 @@ pub fn get(args: &GetArgs) -> Result<()> {
         println!("  Labels:     {}", card.labels.join(", "));
     }
     if !card.description.is_empty() {
-        println!("  Description:\n    {}", card.description.replace("\n", "\n    "));
+        println!(
+            "  Description:\n    {}",
+            card.description.replace("\n", "\n    ")
+        );
     }
     if !card.subtasks.is_empty() {
         println!("  Subtasks:   {}", card.subtasks.join(", "));

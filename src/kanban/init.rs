@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::board::store::Store;
-use crate::board::{Board, column::Column};
+use crate::board::{column::Column, Board};
 use crate::kanban::config::{cards_dir, columns_dir, db_path, is_initialized};
 
 /// Initialize a new kanban board for a project at the given path.
@@ -16,8 +16,8 @@ use crate::kanban::config::{cards_dir, columns_dir, db_path, is_initialized};
 /// 5. Create default columns (backlog, todo, in_progress, review, done)
 /// 6. Return the Board struct
 pub fn init_board(project_path: &Path) -> Result<Board> {
-    let project_path = fs::canonicalize(project_path)
-        .context("Failed to canonicalize project path")?;
+    let project_path =
+        fs::canonicalize(project_path).context("Failed to canonicalize project path")?;
 
     // Check if already initialized
     if is_initialized(&project_path) {
@@ -32,10 +32,8 @@ pub fn init_board(project_path: &Path) -> Result<Board> {
     let columns = columns_dir(&project_path);
     let db = db_path(&project_path);
 
-    fs::create_dir_all(&cards)
-        .context("Failed to create .kanban/cards/ directory")?;
-    fs::create_dir_all(&columns)
-        .context("Failed to create .kanban/columns/ directory")?;
+    fs::create_dir_all(&cards).context("Failed to create .kanban/cards/ directory")?;
+    fs::create_dir_all(&columns).context("Failed to create .kanban/columns/ directory")?;
 
     // Determine board name from the project directory name
     let name = project_path
@@ -44,22 +42,24 @@ pub fn init_board(project_path: &Path) -> Result<Board> {
         .unwrap_or_else(|| "untitled".to_string());
 
     // Create board in database
-    let mut store = Store::open(&db)
-        .context(format!("Failed to open database at {:?}", db))?;
+    let mut store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
 
     let board_id = uuid::Uuid::new_v4().to_string();
-    store.create_board(&board_id, project_path.to_string_lossy().as_ref(), &name)
+    store
+        .create_board(&board_id, project_path.to_string_lossy().as_ref(), &name)
         .context("Failed to create board record")?;
 
     // Create default columns
     let default_cols = Column::default_columns(&board_id);
     for col in &default_cols {
-        store.add_column(col)
+        store
+            .add_column(col)
             .context(format!("Failed to create column: {}", col.name))?;
     }
 
     // Load and return the full board
-    store.get_board(project_path.to_string_lossy().as_ref())
+    store
+        .get_board(project_path.to_string_lossy().as_ref())
         .context("Failed to load newly created board")
 }
 
@@ -97,7 +97,10 @@ mod tests {
 
         assert_eq!(board.columns.len(), 5);
         let names: Vec<&str> = board.columns.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, vec!["backlog", "todo", "in_progress", "review", "done"]);
+        assert_eq!(
+            names,
+            vec!["backlog", "todo", "in_progress", "review", "done"]
+        );
 
         // Cleanup
         let _ = fs::remove_dir_all(&proj);
