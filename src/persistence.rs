@@ -47,11 +47,13 @@ pub fn update_card_with_markdown(
         .context("Failed to begin card update transaction")?;
 
     let mut card = get_card(&tx, card_id)?;
+    let card_file_stale = card.card_file != card_export_file(&card.id);
+    card.card_file = card_export_file(&card.id);
     if let Some(column_id) = patch.column_id.as_deref() {
         validate_column_for_card_board(&tx, &card.board_id, column_id)?;
     }
 
-    if patch.has_changes() {
+    if patch.has_changes() || card_file_stale {
         card.update(
             patch.title.as_deref(),
             patch.description.as_deref(),
@@ -168,13 +170,14 @@ fn update_card(tx: &Transaction<'_>, card: &mut Card) -> Result<()> {
     card.updated_at = Utc::now();
     let row = card.to_row();
     let affected = tx.execute(
-        "UPDATE cards SET column_id = ?1, title = ?2, description = ?3, priority = ?4, labels = ?5, updated_at = ?6 WHERE id = ?7",
+        "UPDATE cards SET column_id = ?1, title = ?2, description = ?3, priority = ?4, labels = ?5, card_file = ?6, updated_at = ?7 WHERE id = ?8",
         params![
             &card.column_id,
             &card.title,
             &card.description,
             &row.priority,
             &row.labels,
+            &row.card_file,
             &row.updated_at,
             &card.id,
         ],
@@ -220,7 +223,8 @@ mod tests {
     use crate::board::column::Column;
     use crate::board::store::{Store, StoreError};
     use crate::persistence::{
-        create_card_with_markdown, delete_card_with_markdown, update_card_with_markdown, CardPatch,
+        create_card_with_markdown, delete_card_with_markdown, move_card_with_markdown,
+        update_card_with_markdown, CardPatch,
     };
 
     struct Fixture {
@@ -345,6 +349,55 @@ mod tests {
         assert!(export.contains("column_id: done"));
         assert!(export.contains("title: Updated title"));
         assert!(export.contains("Updated description"));
+    }
+
+    #[test]
+    fn update_card_with_markdown_normalizes_stale_card_file_metadata() {
+        let mut fixture = Fixture::new();
+        let mut card = fixture.card("card-update-stale-file");
+        card.card_file = PathBuf::from("old-random-file.md");
+        fixture.store.create_card(&card).unwrap();
+
+        let updated = update_card_with_markdown(
+            &mut fixture.store,
+            "card-update-stale-file",
+            CardPatch {
+                title: Some("Updated stale metadata".to_string()),
+                ..CardPatch::default()
+            },
+            &fixture.cards_dir,
+        )
+        .unwrap();
+
+        assert_eq!(
+            updated.card_file,
+            PathBuf::from("card-update-stale-file.md")
+        );
+        let stored = fixture.store.get_card("card-update-stale-file").unwrap();
+        assert_eq!(stored.card_file, PathBuf::from("card-update-stale-file.md"));
+        assert!(fixture.cards_dir.join("card-update-stale-file.md").exists());
+    }
+
+    #[test]
+    fn move_card_with_markdown_normalizes_stale_card_file_metadata() {
+        let mut fixture = Fixture::new();
+        let mut card = fixture.card("card-move-stale-file");
+        card.card_file = PathBuf::from("old-random-move-file.md");
+        fixture.store.create_card(&card).unwrap();
+
+        let moved = move_card_with_markdown(
+            &mut fixture.store,
+            "card-move-stale-file",
+            "done",
+            &fixture.cards_dir,
+        )
+        .unwrap();
+
+        assert_eq!(moved.column_id, "done");
+        assert_eq!(moved.card_file, PathBuf::from("card-move-stale-file.md"));
+        let stored = fixture.store.get_card("card-move-stale-file").unwrap();
+        assert_eq!(stored.card_file, PathBuf::from("card-move-stale-file.md"));
+        assert!(fixture.cards_dir.join("card-move-stale-file.md").exists());
     }
 
     #[test]
