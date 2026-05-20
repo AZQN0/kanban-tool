@@ -236,6 +236,7 @@ fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .title(" Edit Card ")
         .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+    let inner = block.inner(popup_area);
 
     let field_line = |field: EditorField, label: &str, value: String| {
         let marker = if editor.field == field { ">" } else { " " };
@@ -253,17 +254,26 @@ fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
         field_line(EditorField::Description, "Description", description),
         field_line(EditorField::Priority, "Priority", priority),
         field_line(EditorField::Labels, "Labels", labels),
-        Line::from(""),
-        Line::from(" ↑↓/Tab Field  Enter/e Edit field  ←/→ Priority"),
-        Line::from(" Ctrl+S Save card  Esc Cancel card"),
     ];
 
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
+        .split(inner);
+
     let paragraph = Paragraph::new(lines)
-        .block(block)
         .alignment(Alignment::Left)
         .style(Style::default().fg(Color::White).bg(Color::Black));
+    let help = Paragraph::new(vec![
+        Line::from(" ↑↓/Tab Field  Enter/e Edit field  ←/→ Priority"),
+        Line::from(" Ctrl+S Save card  Esc Cancel card"),
+    ])
+    .alignment(Alignment::Left)
+    .style(Style::default().fg(Color::DarkGray).bg(Color::Black));
 
-    frame.render_widget(paragraph, popup_area);
+    frame.render_widget(block, popup_area);
+    frame.render_widget(paragraph, chunks[0]);
+    frame.render_widget(help, chunks[1]);
 }
 
 fn render_text_editor(frame: &mut Frame, editor: &super::app::EditorState, area: Rect) {
@@ -289,22 +299,30 @@ fn render_text_editor(frame: &mut Frame, editor: &super::app::EditorState, area:
         .borders(Borders::ALL)
         .title(format!(" Edit {label} "))
         .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+    let inner = block.inner(popup_area);
 
-    let mut lines = text_editor_lines(value, cursor, multiline, 64);
-    lines.push(Line::from(""));
+    let lines = text_editor_lines(value, cursor, multiline, 64);
     let help = if multiline {
         "Arrows Move  Enter Newline  Ctrl+S Done  Esc Cancel"
     } else {
         "←/→ Move  Home/End Jump  Enter/Ctrl+S Done  Esc Cancel"
     };
-    lines.push(Line::from(help));
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
 
     let paragraph = Paragraph::new(lines)
-        .block(block)
         .alignment(Alignment::Left)
         .style(Style::default().fg(Color::White).bg(Color::Black));
+    let help = Paragraph::new(help)
+        .alignment(Alignment::Left)
+        .style(Style::default().fg(Color::DarkGray).bg(Color::Black));
 
-    frame.render_widget(paragraph, popup_area);
+    frame.render_widget(block, popup_area);
+    frame.render_widget(paragraph, chunks[0]);
+    frame.render_widget(help, chunks[1]);
 }
 
 /// Render the move column popup.
@@ -509,7 +527,7 @@ fn editor_display_value(value: &str, cursor: usize, active: bool, max_width: usi
     if !inserted_cursor {
         rendered.push('█');
     }
-    truncate(&rendered, max_width)
+    truncate_around_cursor(&rendered, max_width)
 }
 
 fn text_editor_lines(
@@ -527,6 +545,31 @@ fn text_editor_lines(
     } else {
         vec![Line::from(rendered)]
     }
+}
+
+fn truncate_around_cursor(value: &str, max_width: usize) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= max_width {
+        return value.to_string();
+    }
+    if max_width <= 3 {
+        return "…".to_string();
+    }
+
+    let cursor_idx = chars.iter().position(|ch| *ch == '█').unwrap_or(0);
+    let window_width = max_width - 1;
+    let start = if cursor_idx >= window_width {
+        cursor_idx + 1 - window_width
+    } else {
+        0
+    };
+    let end = (start + window_width).min(chars.len());
+    let mut rendered = String::new();
+    if start > 0 {
+        rendered.push('…');
+    }
+    rendered.extend(chars[start..end].iter());
+    rendered
 }
 
 /// Center a rectangle within another.
@@ -849,6 +892,86 @@ mod tests {
         assert!(
             rendered.contains("Edit█ me"),
             "missing cursor at title insertion point: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_text_editor_keeps_cursor_visible_for_long_values() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        app.mode = Mode::Editing;
+        app.editor = Some(super::super::app::EditorState {
+            card_id: "card-1".to_string(),
+            field: super::super::app::EditorField::Title,
+            editing_text: true,
+            text_edit_original: Some(
+                "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"
+                    .to_string(),
+            ),
+            title: "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"
+                .to_string(),
+            title_cursor: 70,
+            description: String::new(),
+            description_cursor: 0,
+            priority: Priority::High,
+            labels_input: String::new(),
+            labels_cursor: 0,
+            dirty: false,
+        });
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            rendered.contains('█'),
+            "cursor should stay visible even when text is long: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_text_editor_pins_controls_to_popup_bottom() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        app.mode = Mode::Editing;
+        app.editor = Some(super::super::app::EditorState {
+            card_id: "card-1".to_string(),
+            field: super::super::app::EditorField::Description,
+            editing_text: true,
+            text_edit_original: Some("line".to_string()),
+            title: String::new(),
+            title_cursor: 0,
+            description: "line".to_string(),
+            description_cursor: 4,
+            priority: Priority::High,
+            labels_input: String::new(),
+            labels_cursor: 0,
+            dirty: false,
+        });
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let help_y = buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .position(|row| {
+                row.iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+                    .contains("Ctrl+S Done")
+            })
+            .expect("missing bottom controls");
+        assert!(
+            help_y >= 21,
+            "controls should be pinned near popup bottom, found row {help_y}"
         );
     }
 }
