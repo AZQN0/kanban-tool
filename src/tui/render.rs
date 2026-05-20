@@ -165,7 +165,11 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
 /// Render the card detail panel (right).
 fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let text = if let Some(ref card) = app.detail_card {
-        render_card_detail(card, area.height.saturating_sub(2) as usize)
+        render_card_detail(
+            card,
+            area.height.saturating_sub(2) as usize,
+            area.width.saturating_sub(2) as usize,
+        )
     } else {
         vec![Line::from(" No card selected. ")]
     };
@@ -300,7 +304,11 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Render a card's detail information as lines of text.
-fn render_card_detail<'a>(card: &'a Card, max_visible_lines: usize) -> Vec<Line<'a>> {
+fn render_card_detail<'a>(
+    card: &'a Card,
+    max_visible_lines: usize,
+    max_line_width: usize,
+) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
 
     // Title
@@ -344,15 +352,15 @@ fn render_card_detail<'a>(card: &'a Card, max_visible_lines: usize) -> Vec<Line<
         return lines;
     }
 
-    let body_lines = card.description.lines().collect::<Vec<_>>();
+    let body_lines = wrap_text_lines(&card.description, max_line_width);
     let body_capacity = max_visible_lines.saturating_sub(lines.len());
     if body_lines.len() <= body_capacity {
         for line in body_lines {
-            lines.push(Line::from(truncate(line, 36)));
+            lines.push(Line::from(line));
         }
     } else if body_capacity > 0 {
         for line in body_lines.iter().take(body_capacity.saturating_sub(1)) {
-            lines.push(Line::from(truncate(line, 36)));
+            lines.push(Line::from(line.clone()));
         }
         lines.push(Line::from(Span::styled(
             "...(truncated)",
@@ -361,6 +369,49 @@ fn render_card_detail<'a>(card: &'a Card, max_visible_lines: usize) -> Vec<Line<
     }
 
     lines
+}
+
+fn wrap_text_lines(text: &str, max_width: usize) -> Vec<String> {
+    let width = max_width.max(1);
+    let mut wrapped = Vec::new();
+
+    for source_line in text.lines() {
+        if source_line.is_empty() {
+            wrapped.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        for word in source_line.split_whitespace() {
+            let current_len = current.chars().count();
+            let word_len = word.chars().count();
+            if current_len == 0 {
+                push_wrapped_word(&mut wrapped, &mut current, word, width);
+            } else if current_len + 1 + word_len <= width {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                wrapped.push(std::mem::take(&mut current));
+                push_wrapped_word(&mut wrapped, &mut current, word, width);
+            }
+        }
+        if !current.is_empty() {
+            wrapped.push(current);
+        }
+    }
+
+    wrapped
+}
+
+fn push_wrapped_word(wrapped: &mut Vec<String>, current: &mut String, word: &str, width: usize) {
+    let mut remaining = word;
+    while remaining.chars().count() > width {
+        let chunk = remaining.chars().take(width).collect::<String>();
+        let consumed = chunk.len();
+        wrapped.push(chunk);
+        remaining = &remaining[consumed..];
+    }
+    current.push_str(remaining);
 }
 
 /// Priority indicator character.
@@ -528,7 +579,7 @@ mod tests {
         );
         card.id = "1eb51d69-a3c-extra".to_string();
 
-        let rendered = render_card_detail(&card, 20)
+        let rendered = render_card_detail(&card, 20, 38)
             .into_iter()
             .map(|line| {
                 line.spans
@@ -565,7 +616,7 @@ mod tests {
         );
         card.id = "detail-height-card".to_string();
 
-        let rendered = render_card_detail(&card, 32)
+        let rendered = render_card_detail(&card, 32, 38)
             .into_iter()
             .map(|line| {
                 line.spans
@@ -582,6 +633,39 @@ mod tests {
         assert!(
             rendered.iter().all(|line| line != "...(truncated)"),
             "detail should not truncate when all lines fit: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn render_card_detail_wraps_long_description_lines_before_truncating() {
+        let mut card = Card::new(
+            "board-1",
+            "todo",
+            "Wrapped detail",
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda",
+            Priority::Medium,
+            vec![],
+            PathBuf::from("card.md"),
+        );
+        card.id = "detail-wrap-card".to_string();
+
+        let rendered = render_card_detail(&card, 12, 20)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.into_owned())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            rendered.iter().any(|line| line == "lambda"),
+            "detail should wrap long description lines into available rows: {rendered:?}"
+        );
+        assert!(
+            rendered.iter().all(|line| !line.contains('…')),
+            "detail should not horizontally ellipsize wrapped description: {rendered:?}"
         );
     }
 
