@@ -291,24 +291,6 @@ impl App {
         Ok(())
     }
 
-    /// Open the selected card in $EDITOR.
-    pub fn edit_card(&self) -> Result<()> {
-        let cards = self.current_cards();
-        if self.card_selection >= cards.len() {
-            return Ok(());
-        }
-        let card = &cards[self.card_selection];
-        let card_path = cards_dir(&self.project_path).join(format!("{}.md", card.id));
-
-        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
-        std::process::Command::new(editor)
-            .arg(&card_path)
-            .spawn()
-            .context("Failed to open editor")?;
-
-        Ok(())
-    }
-
     /// Search cards across the board.
     pub fn search(&mut self, query: &str) -> Result<()> {
         if query.is_empty() {

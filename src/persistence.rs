@@ -21,13 +21,14 @@ pub fn create_card_with_markdown(
     card: &Card,
     cards_dir: &Path,
 ) -> Result<String> {
+    let card = card_with_export_path(card);
     let tx = store
         .conn
         .transaction()
         .context("Failed to begin card create transaction")?;
 
-    insert_card(&tx, card)?;
-    sync_card(card, cards_dir).context("Failed to write card markdown export")?;
+    insert_card(&tx, &card)?;
+    sync_card(&card, cards_dir).context("Failed to write card markdown export")?;
 
     tx.commit()
         .context("Failed to commit card create transaction")?;
@@ -118,6 +119,16 @@ impl CardPatch {
             || self.priority.is_some()
             || self.labels.is_some()
     }
+}
+
+pub fn card_export_file(card_id: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{card_id}.md"))
+}
+
+fn card_with_export_path(card: &Card) -> Card {
+    let mut card = card.clone();
+    card.card_file = card_export_file(&card.id);
+    card
 }
 
 fn insert_card(tx: &Transaction<'_>, card: &Card) -> Result<()> {
@@ -288,6 +299,20 @@ mod tests {
         let export = read_export(&fixture.cards_dir, "card-create");
         assert!(export.contains("id: card-create"));
         assert!(export.contains("title: Original title"));
+    }
+
+    #[test]
+    fn create_card_with_markdown_stores_export_path_as_card_file() {
+        let mut fixture = Fixture::new();
+        let mut card = fixture.card("card-file-match");
+        card.card_file = PathBuf::from("unrelated-random-name.md");
+
+        create_card_with_markdown(&mut fixture.store, &card, &fixture.cards_dir).unwrap();
+
+        let stored = fixture.store.get_card("card-file-match").unwrap();
+        assert_eq!(stored.card_file, PathBuf::from("card-file-match.md"));
+        assert!(fixture.cards_dir.join("card-file-match.md").exists());
+        assert!(!fixture.cards_dir.join("unrelated-random-name.md").exists());
     }
 
     #[test]

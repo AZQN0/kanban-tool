@@ -188,7 +188,7 @@ Start with `kanban board` (run from within an initialized project).
 │           │ • card-1                │ token expires...   │
 │           │ ◉ card-2                │                    │
 ├──────────┴──────────────────────────┴────────────────────┤
-│ ↑↓ Nav | Enter Focus | m Move | e Edit | D Delete | q Quit│
+│ ↑↓ Nav | Enter Focus | m Move | D Delete | q Quit        │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -203,7 +203,6 @@ Start with `kanban board` (run from within an initialized project).
 | `Enter` | Focus selected card in detail / Unfocus |
 | `Esc` | Cancel mode / Unfocus detail |
 | `m` | Move card (popup: `b`acklog, `t`odo, `i`n_progress, `r`eview, `d`one) |
-| `e` | Open card in `$EDITOR` |
 | `D` | Delete selected card |
 | `P` | Switch project (project picker) |
 | `/` | Start search |
@@ -249,7 +248,7 @@ Start with `kanban web-ui` (requires `--features webui`). Opens a browser-based 
 | `l` / `→` | Focus next panel |
 | `m` | Open move modal |
 | `D` | Open delete modal |
-| `e` | Edit card in `$EDITOR` |
+| `e` | Open edit modal |
 | `/` | Open search input |
 | `Escape` | Close modal / Cancel |
 

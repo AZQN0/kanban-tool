@@ -200,9 +200,9 @@ fn render_bottom_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     let text = if let Some(error) = &app.error {
         format!(" {} | ERROR: {}", focus_indicator, error)
     } else if app.message.is_some() {
-        format!(" {} | ↑↓ Navigate | Enter Focus | m Move | e Edit | d Delete | P Project | / Search | q Quit | {}", focus_indicator, app.message.as_ref().unwrap_or(&String::new()))
+        format!(" {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | P Project | / Search | q Quit | {}", focus_indicator, app.message.as_ref().unwrap_or(&String::new()))
     } else {
-        format!(" {} | ↑↓ Navigate | Enter Focus | m Move | e Edit | d Delete | P Project | / Search | q Quit", focus_indicator)
+        format!(" {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | P Project | / Search | q Quit", focus_indicator)
     };
 
     let style = if app.error.is_some() {
@@ -429,6 +429,28 @@ mod tests {
         assert!(
             rendered.contains("Card not found: not-a-card"),
             "rendered buffer did not contain error: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_bottom_statusbar_does_not_advertise_markdown_editing() {
+        let backend = TestBackend::new(100, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = test_app();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(!rendered.contains("Edit"), "rendered buffer advertised editing: {rendered}");
+        assert!(
+            !rendered.contains("e Edit"),
+            "rendered buffer advertised e key editing: {rendered}"
         );
     }
 }

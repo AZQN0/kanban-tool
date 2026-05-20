@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::board::card::{Card, Priority};
 use crate::board::store::Store;
 use crate::kanban::config::{cards_dir, db_path, is_initialized};
-use crate::persistence::create_card_with_markdown;
+use crate::persistence::{card_export_file, create_card_with_markdown};
 use crate::CreateArgs;
 
 /// Create a new card in a project's kanban board.
@@ -69,15 +69,16 @@ pub fn create(args: &CreateArgs) -> Result<()> {
     })?;
 
     // Build the card
-    let card = Card::new(
+    let mut card = Card::new(
         &board.id,
         &column_id,
         &args.title,
         args.description.as_deref().unwrap_or(""),
         priority,
         args.label.clone().unwrap_or_default(),
-        PathBuf::from(format!("{}.md", uuid::Uuid::new_v4().to_string())),
+        PathBuf::new(),
     );
+    card.card_file = card_export_file(&card.id);
 
     let card_id = create_card_with_markdown(&mut store, &card, &cards_dir_path)
         .context("Failed to create card and markdown export")?;

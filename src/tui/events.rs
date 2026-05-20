@@ -156,16 +156,6 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             app.set_message("Move to: [b]acklog [t]odo [i]n_progress [r]eview [d]one".to_string());
         }
 
-        // e: edit selected card in $EDITOR
-        KeyCode::Char('e') => {
-            app.edit_card()?;
-            app.set_message("Editor opened. Press any key to continue...".to_string());
-            // Note: we can't actually wait for editor exit here without blocking.
-            // The reload will happen after the terminal re-renders.
-            // We'll reload on next keypress.
-            app.reload_all().ok();
-        }
-
         // d: delete selected card (confirm with y/n)
         KeyCode::Char('D') => {
             app.delete_card()?;
@@ -188,4 +178,65 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    use crate::board::card::{Card, Priority};
+    use crate::tui::app::ColumnView;
+
+    fn test_app_with_card() -> App {
+        let mut card = Card::new(
+            "board-1",
+            "todo",
+            "Test card",
+            "Description",
+            Priority::Medium,
+            vec![],
+            PathBuf::from("test-card.md"),
+        );
+        card.id = "test-card".to_string();
+
+        App {
+            running: true,
+            focus: Focus::Cards,
+            mode: Mode::Normal,
+            error: None,
+            project_path: PathBuf::from("/tmp/kanban-no-edit-test"),
+            board_name: "Test Board".to_string(),
+            columns: vec![ColumnView {
+                name: "todo".to_string(),
+                cards: vec![card.clone()],
+            }],
+            all_cards: vec![card],
+            current_column_idx: 0,
+            card_selection: 0,
+            detail_card: None,
+            search_query: String::new(),
+            search_results: vec![],
+            all_projects: vec![],
+            project_picker_idx: 0,
+            message: None,
+            message_time: std::time::Instant::now(),
+        }
+    }
+
+    #[test]
+    fn e_key_does_not_open_markdown_export_editor() {
+        let mut app = test_app_with_card();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_ne!(
+            app.message.as_deref(),
+            Some("Editor opened. Press any key to continue...")
+        );
+    }
 }

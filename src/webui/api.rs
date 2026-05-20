@@ -11,8 +11,8 @@ use crate::board::store::{Store, StoreError};
 use crate::board::Board;
 use crate::kanban::config;
 use crate::persistence::{
-    create_card_with_markdown, delete_card_with_markdown, move_card_with_markdown,
-    update_card_with_markdown, CardPatch,
+    card_export_file, create_card_with_markdown, delete_card_with_markdown,
+    move_card_with_markdown, update_card_with_markdown, CardPatch,
 };
 
 /// Shared application state for the webui.
@@ -259,17 +259,16 @@ pub async fn create_card(
     let labels = body.labels.unwrap_or_default();
     let description = body.description.unwrap_or_default();
 
-    // Create card in DB
-    let card_file = format!("{}.md", uuid::Uuid::new_v4());
-    let card = Card::new(
+    let mut card = Card::new(
         &board.id,
         &target_col.id,
         &body.title,
         &description,
         priority,
         labels.clone(),
-        PathBuf::from(&card_file),
+        PathBuf::new(),
     );
+    card.card_file = card_export_file(&card.id);
 
     create_card_with_markdown(&mut store, &card, &config::cards_dir(&app.project_path))
         .map_err(|e| ApiError::internal(format!("Failed to create card: {}", e)))?;

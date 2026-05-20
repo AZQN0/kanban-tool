@@ -12,8 +12,8 @@ use crate::board::store::Store;
 use crate::kanban::config::{cards_dir, db_path, is_initialized};
 use crate::kanban::init::init_board;
 use crate::persistence::{
-    create_card_with_markdown, delete_card_with_markdown, move_card_with_markdown,
-    update_card_with_markdown, CardPatch,
+    card_export_file, create_card_with_markdown, delete_card_with_markdown,
+    move_card_with_markdown, update_card_with_markdown, CardPatch,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -64,15 +64,16 @@ impl CreateCardTool {
         let mut store = Store::open(&db_path(&project_path))
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        let card = Card::new(
+        let mut card = Card::new(
             &board_id,
             &column_id,
             &self.title,
             self.description.as_deref().unwrap_or(""),
             priority,
             self.labels.clone().unwrap_or_default(),
-            PathBuf::from(format!("{}.md", uuid::Uuid::new_v4().to_string())),
+            PathBuf::new(),
         );
+        card.card_file = card_export_file(&card.id);
 
         let card_id = create_card_with_markdown(&mut store, &card, &cards_dir(&project_path))
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
