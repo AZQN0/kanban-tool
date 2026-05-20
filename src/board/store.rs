@@ -255,13 +255,7 @@ impl Store {
             values.push(Box::new(d.to_string()));
         }
         if let Some(c) = column_id {
-            if self.conn.query_row(
-                "SELECT 1 FROM columns WHERE id = ?1",
-                params![c],
-                |_| Ok(()),
-            ).optional().context("Failed to validate target column")?.is_none() {
-                return Err(StoreError::BadInput(format!("Column not found: {}", c)).into());
-            }
+            self.validate_column_for_card_board(card_id, c)?;
             updates.push("column_id = ?".to_string());
             values.push(Box::new(c.to_string()));
         }
@@ -370,13 +364,7 @@ impl Store {
     }
 
     pub fn transition_card(&mut self, card_id: &str, new_column_id: &str) -> Result<()> {
-        if self.conn.query_row(
-            "SELECT 1 FROM columns WHERE id = ?1",
-            params![new_column_id],
-            |_| Ok(()),
-        ).optional().context("Failed to validate target column")?.is_none() {
-            return Err(StoreError::BadInput(format!("Column not found: {}", new_column_id)).into());
-        }
+        self.validate_column_for_card_board(card_id, new_column_id)?;
 
         let affected = self.conn.execute(
             "UPDATE cards SET column_id = ?1, updated_at = datetime('now') WHERE id = ?2",
@@ -385,6 +373,33 @@ impl Store {
         if affected == 0 {
             return Err(StoreError::not_found("Card", card_id).into());
         }
+        Ok(())
+    }
+
+    fn validate_column_for_card_board(&self, card_id: &str, column_id: &str) -> Result<()> {
+        let card_board_id: String = self.conn.query_row(
+            "SELECT board_id FROM cards WHERE id = ?1",
+            params![card_id],
+            |r| r.get(0),
+        ).optional()
+            .context("Failed to validate card board")?
+            .ok_or_else(|| StoreError::not_found("Card", card_id))?;
+
+        let column_board_id: String = self.conn.query_row(
+            "SELECT board_id FROM columns WHERE id = ?1",
+            params![column_id],
+            |r| r.get(0),
+        ).optional()
+            .context("Failed to validate target column")?
+            .ok_or_else(|| StoreError::BadInput(format!("Column not found: {}", column_id)))?;
+
+        if column_board_id != card_board_id {
+            return Err(StoreError::BadInput(format!(
+                "Column {} does not belong to card board {}",
+                column_id, card_board_id
+            )).into());
+        }
+
         Ok(())
     }
 
@@ -479,6 +494,16 @@ mod tests {
         card
     }
 
+    fn add_second_board(store: &mut Store) {
+        store.create_board("board-2", "/tmp/other-project", "Other Project").unwrap();
+        store.add_column(&Column {
+            id: "other-todo".to_string(),
+            board_id: "board-2".to_string(),
+            name: "todo".to_string(),
+            sort_order: 0,
+        }).unwrap();
+    }
+
     #[test]
     fn delete_card_returns_error_when_no_row_is_deleted() {
         let mut store = test_store();
@@ -515,6 +540,20 @@ mod tests {
     }
 
     #[test]
+    fn update_card_rejects_column_from_another_board() {
+        let mut store = test_store();
+        add_second_board(&mut store);
+        let card = test_card("card-1");
+        store.create_card(&card).unwrap();
+
+        let err = store
+            .update_card("card-1", None, None, Some("other-todo"), None, None)
+            .unwrap_err();
+
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::BadInput(_))));
+    }
+
+    #[test]
     fn transition_card_returns_error_when_no_row_is_updated() {
         let mut store = test_store();
 
@@ -531,6 +570,18 @@ mod tests {
         store.create_card(&card).unwrap();
 
         let err = store.transition_card("card-1", "missing-column").unwrap_err();
+
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::BadInput(_))));
+    }
+
+    #[test]
+    fn transition_card_rejects_column_from_another_board() {
+        let mut store = test_store();
+        add_second_board(&mut store);
+        let card = test_card("card-1");
+        store.create_card(&card).unwrap();
+
+        let err = store.transition_card("card-1", "other-todo").unwrap_err();
 
         assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::BadInput(_))));
     }
