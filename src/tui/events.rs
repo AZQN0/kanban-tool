@@ -24,10 +24,8 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             KeyCode::Backspace => {
                 app.search_query.pop();
             }
-            KeyCode::Char(c) => {
-                if modifiers == KeyModifiers::NONE {
-                    app.search_query.push(c);
-                }
+            KeyCode::Char(c) if modifiers == KeyModifiers::NONE => {
+                app.search_query.push(c);
             }
             _ => {}
         }
@@ -63,34 +61,6 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
                 app.focus = Focus::Cards;
             }
             KeyCode::Esc => {
-                app.mode = Mode::Normal;
-            }
-            _ => {}
-        }
-        return Ok(());
-    }
-
-    // If in project picker mode
-    if app.mode == Mode::ProjectPicker {
-        match key_code {
-            KeyCode::Enter => {
-                if !app.all_projects.is_empty() && app.project_picker_idx < app.all_projects.len() {
-                    let (path, _name) = &app.all_projects[app.project_picker_idx];
-                    if path != &app.project_path {
-                        // Reload the app with new project path
-                        let new_app = super::app::App::new(path.clone())?;
-                        *app = new_app;
-                    }
-                }
-                app.mode = super::app::Mode::Normal;
-            }
-            KeyCode::Char('p') if app.project_picker_idx > 0 => {
-                app.project_picker_idx -= 1;
-            }
-            KeyCode::Char('n') if app.project_picker_idx + 1 < app.all_projects.len() => {
-                app.project_picker_idx += 1;
-            }
-            KeyCode::Esc | KeyCode::Char('q') => {
                 app.mode = Mode::Normal;
             }
             _ => {}
@@ -161,13 +131,6 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             app.delete_card()?;
         }
 
-        // P: project picker
-        KeyCode::Char('P') => {
-            app.load_projects()?;
-            app.project_picker_idx = 0;
-            app.mode = Mode::ProjectPicker;
-        }
-
         // /: start search
         KeyCode::Char('/') => {
             app.search_query.clear();
@@ -217,8 +180,6 @@ mod tests {
             detail_card: None,
             search_query: String::new(),
             search_results: vec![],
-            all_projects: vec![],
-            project_picker_idx: 0,
             message: None,
             message_time: std::time::Instant::now(),
         }
@@ -248,5 +209,18 @@ mod tests {
             !readme.contains("edit cards through the CLI, TUI"),
             "README still advertises TUI editing of authoritative card data"
         );
+    }
+
+    #[test]
+    fn p_key_does_not_open_project_picker() {
+        let mut app = test_app_with_card();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('P'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.mode, Mode::Normal);
     }
 }

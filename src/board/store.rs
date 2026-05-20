@@ -433,7 +433,10 @@ impl Store {
             "priority" => {
                 query.push_str(" ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 WHEN 'backlog' THEN 5 END");
             }
-            "created" | _ => {
+            "created" => {
+                query.push_str(" ORDER BY created_at ASC");
+            }
+            _ => {
                 query.push_str(" ORDER BY created_at ASC");
             }
         }

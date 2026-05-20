@@ -27,7 +27,6 @@ pub enum Mode {
     Moving,
     Searching,
     SearchingResult,
-    ProjectPicker,
 }
 
 /// The main application state.
@@ -55,10 +54,6 @@ pub struct App {
     // Search state
     pub search_query: String,
     pub search_results: Vec<Card>,
-
-    // Project picker
-    pub all_projects: Vec<(PathBuf, String)>,
-    pub project_picker_idx: usize,
 
     // Message display (temporary)
     pub message: Option<String>,
@@ -103,8 +98,6 @@ impl App {
             detail_card: None,
             search_query: String::new(),
             search_results: Vec::new(),
-            all_projects: Vec::new(),
-            project_picker_idx: 0,
             message: None,
             message_time: std::time::Instant::now(),
         })
@@ -307,18 +300,6 @@ impl App {
         if let Some(card) = self.search_results.first() {
             self.detail_card = Some(card.clone());
         }
-        Ok(())
-    }
-
-    /// Load all projects from the database.
-    pub fn load_projects(&mut self) -> Result<()> {
-        let db = db_path(&self.project_path);
-        let store = Store::open(&db)?;
-        let boards = store.list_boards()?;
-        self.all_projects = boards
-            .iter()
-            .map(|b| (PathBuf::from(&b.project_path), b.name.clone()))
-            .collect();
         Ok(())
     }
 

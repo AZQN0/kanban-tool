@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-pub mod store;
 pub mod card;
 pub mod column;
 pub mod label;
+pub mod store;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -28,16 +28,18 @@ pub struct BoardRow {
 }
 
 impl BoardRow {
-    pub fn to_board(self, columns: Vec<column::Column>) -> Board {
+    pub fn into_board(self, columns: Vec<column::Column>) -> Board {
         Board {
             id: self.id,
             project_path: self.project_path,
             name: self.name,
             columns,
             created_at: DateTime::parse_from_rfc3339(&self.created_at)
-                .map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                .map(|d| d.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
             updated_at: DateTime::parse_from_rfc3339(&self.updated_at)
-                .map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                .map(|d| d.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
         }
     }
 }

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
+use std::path::{Path, PathBuf};
 
 use crate::board::store::Store;
 use crate::board::Board;
@@ -26,8 +26,7 @@ impl BoardManager {
 
     /// Get the underlying store, opening the connection if needed.
     fn get_store(&self) -> Result<Store> {
-        Store::open(&self.db_path)
-            .context(format!("Failed to open database at {:?}", self.db_path))
+        Store::open(&self.db_path).context(format!("Failed to open database at {:?}", self.db_path))
     }
 
     /// Find a board for the given project path.
@@ -42,8 +41,7 @@ impl BoardManager {
         }
 
         let db = db_path(&project_path);
-        let store = Store::open(&db)
-            .context(format!("Failed to open database at {:?}", db))?;
+        let store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
 
         match store.get_board(project_path.to_string_lossy().as_ref()) {
             Ok(board) => Ok(Some(board)),
@@ -71,7 +69,8 @@ impl BoardManager {
     /// Get the project path for a given board ID.
     pub fn get_project_path(&self, board_id: &str) -> Result<String> {
         let store = self.get_store()?;
-        store.get_board_id_for_path(board_id)
+        store
+            .get_board_id_for_path(board_id)
             .map_err(|_| anyhow!("No project path found for board ID: {}", board_id))
     }
 
@@ -98,15 +97,13 @@ impl BoardManager {
 
 /// Try to canonicalize a path; fall back to the original if canonicalization fails.
 fn canonicalize_or_identity(path: &Path) -> Result<PathBuf> {
-    std::fs::canonicalize(path)
-        .map_err(|e| anyhow!("Failed to resolve path {:?}: {}", path, e))
+    std::fs::canonicalize(path).map_err(|e| anyhow!("Failed to resolve path {:?}: {}", path, e))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
-
 
     fn setup_project() -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir().join(format!("kanban_test_mgr_{}", uuid::Uuid::new_v4()));

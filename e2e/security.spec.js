@@ -65,6 +65,31 @@ test.describe("Kanban WebUI security", () => {
     });
   });
 
+  test("ignores project-local static asset shadowing", async ({ request }) => {
+    const port = await freePort();
+
+    await withKanbanProject({
+      port,
+      beforeStart: async (tmpDir) => {
+        const shadowDir = require("path").join(tmpDir, "webui", "static");
+        require("fs").mkdirSync(shadowDir, { recursive: true });
+        require("fs").writeFileSync(
+          require("path").join(shadowDir, "app.js"),
+          "window.__shadowedStaticAsset = true;"
+        );
+      },
+      fn: async (_tmpDir, serverPort) => {
+        await waitForServer(request, serverPort);
+
+        const appJs = await request.get(`http://127.0.0.1:${serverPort}/static/app.js`);
+        expect(appJs.status()).toBe(200);
+        const body = await appJs.text();
+        expect(body).toContain("Application State");
+        expect(body).not.toContain("__shadowedStaticAsset");
+      },
+    });
+  });
+
   test("rejects remote bind unless explicitly allowed", async () => {
     const port = await freePort();
 

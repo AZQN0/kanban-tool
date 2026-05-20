@@ -57,10 +57,10 @@ fn build_card_markdown(card: &Card) -> String {
     let mut content = String::from("---\n");
 
     // Write frontmatter fields
-    content.push_str(&format!("id: {}\n", card.id));
-    content.push_str(&format!("board_id: {}\n", card.board_id));
-    content.push_str(&format!("column_id: {}\n", card.column_id));
-    content.push_str(&format!("title: {}\n", card.title));
+    push_frontmatter_string(&mut content, "id", &card.id);
+    push_frontmatter_string(&mut content, "board_id", &card.board_id);
+    push_frontmatter_string(&mut content, "column_id", &card.column_id);
+    push_frontmatter_string(&mut content, "title", &card.title);
     content.push_str(&format!("priority: {}\n", card.priority));
 
     // Labels as JSON array
@@ -73,7 +73,7 @@ fn build_card_markdown(card: &Card) -> String {
 
     // Parent card ID
     if let Some(ref parent_id) = card.parent_card_id {
-        content.push_str(&format!("parent_card_id: {}\n", parent_id));
+        push_frontmatter_string(&mut content, "parent_card_id", parent_id);
     } else {
         content.push_str("parent_card_id: null\n");
     }
@@ -89,6 +89,11 @@ fn build_card_markdown(card: &Card) -> String {
     content.push_str(&card.description);
 
     content
+}
+
+fn push_frontmatter_string(content: &mut String, key: &str, value: &str) {
+    let encoded = serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string());
+    content.push_str(&format!("{}: {}\n", key, encoded));
 }
 
 /// Write a Column definition to a markdown file.
@@ -185,8 +190,8 @@ mod tests {
         assert!(file_path.exists());
 
         let content = fs::read_to_string(&file_path).unwrap();
-        assert!(content.contains("id: test-card"));
-        assert!(content.contains("title: Test Card"));
+        assert!(content.contains("id: \"test-card\""));
+        assert!(content.contains("title: \"Test Card\""));
         assert!(content.contains("priority: high"));
         assert!(content.contains("Test description"));
 
@@ -226,10 +231,27 @@ mod tests {
         let markdown = build_card_markdown(&card);
 
         assert!(markdown.starts_with("---\n"));
-        assert!(markdown.contains("id: test-card\n"));
-        assert!(markdown.contains("title: Test Card\n"));
+        assert!(markdown.contains("id: \"test-card\"\n"));
+        assert!(markdown.contains("title: \"Test Card\"\n"));
         assert!(markdown.contains("priority: high\n"));
         assert!(markdown.contains("Test description"));
+    }
+
+    #[test]
+    fn build_card_markdown_quotes_frontmatter_scalars() {
+        let mut card = test_card();
+        card.title = "Title with \"quotes\"\nand colon: value".to_string();
+        card.parent_card_id = Some("parent:with:colon".to_string());
+
+        let markdown = build_card_markdown(&card);
+        let frontmatter = markdown.split("---\n\n").next().unwrap_or_default();
+
+        assert!(frontmatter.contains("title: \"Title with \\\"quotes\\\"\\nand colon: value\""));
+        assert!(frontmatter.contains("parent_card_id: \"parent:with:colon\""));
+        assert!(
+            !frontmatter.contains("and colon: value\npriority"),
+            "title newline escaped out of the frontmatter scalar"
+        );
     }
 
     #[test]

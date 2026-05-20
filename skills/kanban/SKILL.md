@@ -231,7 +231,7 @@ For a visual terminal experience:
 ```bash
 kanban board
 # Navigate with j/k (up/down), h/l (panel focus)
-# Press m to move, D to delete, P to switch project, / to search
+# Press m to move, D to delete, / to search
 ```
 
 ### 7. Use the WebUI
@@ -258,7 +258,7 @@ Use the MCP server tools programmatically. Example:
 
 - **Card IDs** are UUIDs returned by `kanban create`. Keep them handy for `move`, `get`, `update`, `delete`, and other operations.
 - **Markdown cards** are synchronized exports, not the authoritative edit path. Direct markdown edits are not imported; use CLI, WebUI, or MCP writes to change cards.
-- **Multi-project** — use `--project` flag or `kanban board` (TUI) to switch between boards.
+- **Multi-project** — use the `--project` flag for CLI commands, or start `kanban board` from the initialized project directory you want to view.
 - **Labels** — add multiple with repeated `--label` flags for categorization. Multiple labels filter as AND (card must have all specified labels).
 - **Priority ordering** — `urgent` > `high` > `medium` > `low` > `backlog`.
 - **Interfaces** — Use CLI for scripting, TUI for terminal work, WebUI for browser-based collaboration, and MCP for AI agent integration.

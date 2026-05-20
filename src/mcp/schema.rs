@@ -1,3 +1,5 @@
+#![allow(clippy::enum_variant_names)]
+
 use rust_mcp_sdk::{
     auth::AuthInfo,
     macros::{mcp_tool, JsonSchema},
@@ -17,7 +19,7 @@ use crate::persistence::{
     move_card_with_markdown, update_card_with_markdown, CardPatch,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize)]
 struct CardSummaryResponse {
@@ -688,7 +690,7 @@ fn resolve_priority(priority: &Option<String>) -> Result<Priority, CallToolError
     })
 }
 
-fn get_column_name(store: &Store, project_path: &PathBuf, column_id: &str) -> Option<String> {
+fn get_column_name(store: &Store, project_path: &Path, column_id: &str) -> Option<String> {
     let board = store.get_board(&project_path.to_string_lossy()).ok()?;
     board
         .columns

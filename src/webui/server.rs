@@ -75,28 +75,36 @@ async fn build_app(app_state: AppState) -> Router {
 }
 
 /// Get the static files directory.
-/// Checks: CWD/webui/static/, then binary-dir/../../webui/static/.
+/// Checks trusted package-relative locations only, never the runtime CWD.
 pub fn static_dir() -> PathBuf {
-    // Check CWD first (when run from project root)
-    let cwd_candidate = PathBuf::from("webui/static");
-    if cwd_candidate.exists() {
-        return cwd_candidate;
-    }
-
-    // Check relative to binary (when run from a project directory)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let candidate = parent.join("../../webui/static");
-            if let Ok(canonical) = candidate.canonicalize() {
-                if canonical.exists() {
-                    return canonical;
-                }
+    for candidate in static_dir_candidates() {
+        if let Ok(canonical) = candidate.canonicalize() {
+            if canonical.is_dir() {
+                return canonical;
             }
         }
     }
 
-    // Fallback
-    PathBuf::from("webui/static")
+    manifest_static_dir()
+}
+
+fn static_dir_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("../../webui/static"));
+            candidates.push(parent.join("../webui/static"));
+            candidates.push(parent.join("webui/static"));
+        }
+    }
+
+    candidates.push(manifest_static_dir());
+    candidates
+}
+
+fn manifest_static_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("webui/static")
 }
 
 /// Serve static files from webui/static/.
@@ -267,5 +275,16 @@ mod tests {
         let err = resolve_static_path(&root, ".").unwrap_err();
 
         assert_eq!(err.status_code(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn static_dir_candidates_do_not_use_runtime_cwd() {
+        let cwd_relative = PathBuf::from("webui/static");
+
+        assert!(
+            !static_dir_candidates().contains(&cwd_relative),
+            "static assets must not be resolved from the process CWD"
+        );
+        assert!(static_dir_candidates().contains(&manifest_static_dir()));
     }
 }

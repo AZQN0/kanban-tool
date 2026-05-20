@@ -165,6 +165,10 @@ async function withKanbanProject(opts) {
       "backlog",
     ], { bin: kanbanBin });
 
+    if (opts.beforeStart) {
+      await opts.beforeStart(tmpDir);
+    }
+
     // Start server serving from the project directory
     server = await startServer(tmpDir, port, { bin: kanbanBin });
     await waitForServer(port);

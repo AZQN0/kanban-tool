@@ -51,9 +51,7 @@ impl ServerSentEvent {
 }
 
 /// SSE endpoint handler — serves `text/event-stream` to clients.
-pub async fn sse_handler(
-    Extension(state): Extension<AppState>,
-) -> Response {
+pub async fn sse_handler(Extension(state): Extension<AppState>) -> Response {
     let stream = async_stream::stream! {
         let mut rx = state.broadcaster.subscribe();
         loop {

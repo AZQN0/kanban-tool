@@ -15,9 +15,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // Top status bar
-            Constraint::Min(1),     // Main area
-            Constraint::Length(3),  // Bottom status bar
+            Constraint::Length(1), // Top status bar
+            Constraint::Min(1),    // Main area
+            Constraint::Length(3), // Bottom status bar
         ])
         .split(frame.area());
 
@@ -32,13 +32,19 @@ fn render_top_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     let total = app.all_cards.len();
 
     let text = match app.mode {
-        Mode::Searching => format!(" 🔍 Searching: {} | Project: {} | Cards: {total}", app.search_query, project_name),
-        Mode::ProjectPicker => format!(" 📋 Projects ({}/{}): Project: {}", app.project_picker_idx + 1, app.all_projects.len(), project_name),
+        Mode::Searching => format!(
+            " 🔍 Searching: {} | Project: {} | Cards: {total}",
+            app.search_query, project_name
+        ),
         _ => format!(" 📋 Project: {} | Cards: {total}", project_name),
     };
 
     let paragraph = Paragraph::new(text)
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Cyan)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Cyan)),
+        )
         .alignment(Alignment::Left);
 
     frame.render_widget(paragraph, area);
@@ -46,12 +52,6 @@ fn render_top_statusbar(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Main area with 3 panels: columns, cards, detail.
 fn render_main_area(frame: &mut Frame, app: &App, area: Rect) {
-    // Handle project picker overlay
-    if app.mode == Mode::ProjectPicker {
-        render_project_picker(frame, app, area);
-        return;
-    }
-
     // Handle move popup
     if app.mode == Mode::Moving {
         render_move_popup(frame, app, area);
@@ -67,9 +67,9 @@ fn render_main_area(frame: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(16),  // Columns panel
-            Constraint::Min(20),     // Cards panel
-            Constraint::Length(40),  // Detail panel
+            Constraint::Length(16), // Columns panel
+            Constraint::Min(20),    // Cards panel
+            Constraint::Length(40), // Detail panel
         ])
         .split(area);
 
@@ -94,7 +94,9 @@ fn render_columns(frame: &mut Frame, app: &App, area: Rect) {
         };
 
         let _style = if is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
@@ -112,9 +114,13 @@ fn render_columns(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Columns ")
-                .style(Style::default().fg(Color::Gray))
+                .style(Style::default().fg(Color::Gray)),
         )
-        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
     frame.render_widget(list, area);
 }
@@ -127,7 +133,8 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
     let col_name = if app.mode == Mode::SearchingResult {
         "Search Results".to_string()
     } else {
-        app.columns.get(app.current_column_idx)
+        app.columns
+            .get(app.current_column_idx)
             .map(|c| c.name.clone())
             .unwrap_or_else(|| "?".to_string())
     };
@@ -140,7 +147,9 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
 
         let is_selected = i == app.card_selection;
         let _style = if is_selected {
-            Style::default().fg(Color::White).add_modifier(Modifier::REVERSED)
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::REVERSED)
         } else if card.priority == Priority::Urgent {
             Style::default().fg(Color::Red)
         } else if card.priority == Priority::High {
@@ -150,7 +159,10 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         };
 
         let id_short: String = card.id.chars().take(8).collect();
-        items.push(ListItem::new(format!("{} {} {}", priority_indicator, id_short, title)));
+        items.push(ListItem::new(format!(
+            "{} {} {}",
+            priority_indicator, id_short, title
+        )));
     }
 
     if items.is_empty() {
@@ -162,9 +174,13 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!(" {} ", col_name))
-                .style(Style::default().fg(Color::Gray))
+                .style(Style::default().fg(Color::Gray)),
         )
-        .highlight_style(Style::default().fg(Color::White).add_modifier(Modifier::REVERSED));
+        .highlight_style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::REVERSED),
+        );
 
     frame.render_widget(list, area);
 }
@@ -182,7 +198,7 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Detail ")
-                .style(Style::default().fg(Color::Gray))
+                .style(Style::default().fg(Color::Gray)),
         )
         .wrap(ratatui::widgets::Wrap { trim: true });
 
@@ -200,9 +216,16 @@ fn render_bottom_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     let text = if let Some(error) = &app.error {
         format!(" {} | ERROR: {}", focus_indicator, error)
     } else if app.message.is_some() {
-        format!(" {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | P Project | / Search | q Quit | {}", focus_indicator, app.message.as_ref().unwrap_or(&String::new()))
+        format!(
+            " {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | / Search | q Quit | {}",
+            focus_indicator,
+            app.message.as_ref().unwrap_or(&String::new())
+        )
     } else {
-        format!(" {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | P Project | / Search | q Quit", focus_indicator)
+        format!(
+            " {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | / Search | q Quit",
+            focus_indicator
+        )
     };
 
     let style = if app.error.is_some() {
@@ -218,40 +241,6 @@ fn render_bottom_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-/// Render the project picker overlay.
-fn render_project_picker(frame: &mut Frame, app: &App, area: Rect) {
-    // Dim background
-    let bg = Paragraph::new("").style(Style::default().bg(Color::Black));
-    frame.render_widget(bg, area);
-
-    let picker_area = center_rect(area, 50, 10);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Switch Project ")
-        .style(Style::default().fg(Color::Yellow).bg(Color::Black));
-
-    let mut items: Vec<ListItem> = Vec::new();
-    for (i, (path, name)) in app.all_projects.iter().enumerate() {
-        let prefix = if i == app.project_picker_idx { "▶ " } else { "  " };
-        let path_short = path.to_string_lossy().to_string();
-        let label = format!("{} {} ({})", prefix, name, path_short);
-        let style = if i == app.project_picker_idx {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-        items.push(ListItem::new(Span::styled(label, style)));
-    }
-
-    if items.is_empty() {
-        items.push(ListItem::new(vec![Line::from(Span::styled(" No other projects found.", Style::default().fg(Color::Gray)))]));
-    }
-
-    let list = List::new(items);
-    frame.render_widget(block, picker_area);
-    frame.render_widget(list, picker_area);
-}
-
 /// Render the move column popup.
 fn render_move_popup(frame: &mut Frame, _app: &App, area: Rect) {
     let popup_area = center_rect(area, 50, 8);
@@ -260,7 +249,7 @@ fn render_move_popup(frame: &mut Frame, _app: &App, area: Rect) {
         .title(" Move to... ")
         .style(Style::default().fg(Color::Cyan).bg(Color::Black));
 
-    let columns = vec![
+    let columns = [
         ("b", "Backlog"),
         ("t", "Todo"),
         ("i", "In Progress"),
@@ -268,9 +257,10 @@ fn render_move_popup(frame: &mut Frame, _app: &App, area: Rect) {
         ("d", "Done"),
     ];
 
-    let lines: Vec<Line> = columns.iter().map(|(key, name)| {
-        Line::from(format!("  [{}] {}", key, name))
-    }).collect();
+    let lines: Vec<Line> = columns
+        .iter()
+        .map(|(key, name)| Line::from(format!("  [{}] {}", key, name)))
+        .collect();
 
     let paragraph = Paragraph::new(lines)
         .alignment(Alignment::Center)
@@ -300,7 +290,9 @@ fn render_card_detail<'a>(card: &'a Card) -> Vec<Line<'a>> {
     // Title
     lines.push(Line::from(Span::styled(
         &card.title,
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
     )));
 
     // Metadata
@@ -312,10 +304,13 @@ fn render_card_detail<'a>(card: &'a Card) -> Vec<Line<'a>> {
     let meta = format!(
         "ID: {} | Priority: {} | Labels: {}",
         &card.id.chars().take(12).collect::<String>(),
-        card.priority.to_string(),
+        card.priority,
         labels_str
     );
-    lines.push(Line::from(Span::styled(meta, Style::default().fg(Color::Gray))));
+    lines.push(Line::from(Span::styled(
+        meta,
+        Style::default().fg(Color::Gray),
+    )));
 
     // Separator
     lines.push(Line::from("─".repeat(38)));
@@ -324,18 +319,26 @@ fn render_card_detail<'a>(card: &'a Card) -> Vec<Line<'a>> {
     let body = &card.description;
     let mut remaining_lines = body.lines();
     for line in remaining_lines.by_ref() {
-        if lines.len() >= 20 { break; }
+        if lines.len() >= 20 {
+            break;
+        }
         lines.push(Line::from(truncate(line, 36)));
     }
 
     // If description is truncated, show indicator
     if remaining_lines.next().is_some() {
-        lines.push(Line::from(Span::styled("...(truncated)", Style::default().fg(Color::Gray))));
+        lines.push(Line::from(Span::styled(
+            "...(truncated)",
+            Style::default().fg(Color::Gray),
+        )));
     }
 
     // Empty state
     if card.description.is_empty() {
-        lines.push(Line::from(Span::styled(" (no description)", Style::default().fg(Color::Gray))));
+        lines.push(Line::from(Span::styled(
+            " (no description)",
+            Style::default().fg(Color::Gray),
+        )));
     }
 
     lines
@@ -403,8 +406,6 @@ mod tests {
             detail_card: None,
             search_query: String::new(),
             search_results: vec![],
-            all_projects: vec![],
-            project_picker_idx: 0,
             message: None,
             message_time: std::time::Instant::now(),
         }
@@ -447,10 +448,17 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(!rendered.contains("Edit"), "rendered buffer advertised editing: {rendered}");
+        assert!(
+            !rendered.contains("Edit"),
+            "rendered buffer advertised editing: {rendered}"
+        );
         assert!(
             !rendered.contains("e Edit"),
             "rendered buffer advertised e key editing: {rendered}"
+        );
+        assert!(
+            !rendered.contains("P Project"),
+            "rendered buffer advertised unsupported project switching: {rendered}"
         );
     }
 }

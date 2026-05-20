@@ -301,8 +301,8 @@ mod tests {
             "Original title"
         );
         let export = read_export(&fixture.cards_dir, "card-create");
-        assert!(export.contains("id: card-create"));
-        assert!(export.contains("title: Original title"));
+        assert!(export.contains("id: \"card-create\""));
+        assert!(export.contains("title: \"Original title\""));
     }
 
     #[test]
@@ -346,8 +346,8 @@ mod tests {
             Priority::High
         );
         let export = read_export(&fixture.cards_dir, "card-update");
-        assert!(export.contains("column_id: done"));
-        assert!(export.contains("title: Updated title"));
+        assert!(export.contains("column_id: \"done\""));
+        assert!(export.contains("title: \"Updated title\""));
         assert!(export.contains("Updated description"));
     }
 

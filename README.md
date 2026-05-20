@@ -207,7 +207,6 @@ Start with `kanban board` (run from within an initialized project).
 | `Esc` | Cancel mode / Unfocus detail |
 | `m` | Move card (popup: `b`acklog, `t`odo, `i`n_progress, `r`eview, `d`one) |
 | `D` | Delete selected card |
-| `P` | Switch project (project picker) |
 | `/` | Start search |
 | `q` | Quit |
 
@@ -341,7 +340,7 @@ This project ships with an AI agent skill (`skills/kanban/SKILL.md`) covering al
 - The WebUI is single-project per running server. Start one `kanban web-ui` process per project directory.
 - WebUI SSE updates are broadcast between clients connected to the same server after WebUI API mutations. The WebUI does not currently watch SQLite for CLI or MCP changes.
 - The WebUI has no authentication. It binds to loopback by default; non-loopback binds require explicit `--allow-remote`.
-- The TUI supports navigation, move, delete, project switching, and search. Edit card fields through the CLI, WebUI, or MCP API.
+- The TUI supports navigation, move, delete, and search for the current project. Start it from another initialized project directory to view that board. Edit card fields through the CLI, WebUI, or MCP API.
 
 ## Testing
 
