@@ -74,7 +74,8 @@ async function loadBoard() {
     state.boardName = data.name || "Board";
     state.columns = data.columns;
     state.allCards = state.columns.flatMap((c) => c.cards);
-    state.currentColumnIdx = Math.min(state.currentColumnIdx, state.columns.length - 1);
+    state.currentColumnIdx = Math.max(0, Math.min(state.currentColumnIdx, state.columns.length - 1));
+    normalizeFocusForCurrentCards();
     render();
   } catch (e) {
     showMessage("Error loading board: " + e.message);
@@ -93,9 +94,10 @@ async function searchCards(query) {
   try {
     const cards = await API.get(`/api/cards/search?q=${encodeURIComponent(query)}`);
     state.searchingResults = cards;
-    state.columns = [{ name: "Search Results", cards }];
-    state.currentColumnIdx = 0;
     state.mode = "searchingResult";
+    state.cardSelection = 0;
+    state.detailCard = null;
+    normalizeFocusForCurrentCards();
     render();
   } catch (e) {
     showMessage("Search failed: " + e.message);
@@ -187,6 +189,28 @@ function getCurrentCards() {
   return col ? col.cards : [];
 }
 
+function normalizeFocusForCurrentCards() {
+  const cards = getCurrentCards();
+  if (cards.length === 0) {
+    state.cardSelection = 0;
+    state.detailCard = null;
+    if (state.focus === "cards" || state.focus === "detail") {
+      state.focus = "columns";
+    }
+    return;
+  }
+  state.cardSelection = Math.min(state.cardSelection, cards.length - 1);
+}
+
+function exitSearchMode() {
+  state.mode = "normal";
+  state.searchQuery = "";
+  state.searchingResults = [];
+  state.detailCard = null;
+  normalizeFocusForCurrentCards();
+  render();
+}
+
 function renderColumnsPanel() {
   const container = document.getElementById("columns-list");
   container.innerHTML = "";
@@ -194,8 +218,7 @@ function renderColumnsPanel() {
   state.columns.forEach((col, i) => {
     const div = document.createElement("div");
     div.className = `column-item${i === state.currentColumnIdx ? " active" : ""}`;
-    const prefix = i === state.currentColumnIdx ? "▶ " : "  ";
-    div.textContent = `${prefix}${col.name} (${col.cards.length})`;
+    div.textContent = `${col.name} (${col.cards.length})`;
     div.dataset.idx = i;
 
     div.addEventListener("click", () => {
@@ -203,6 +226,7 @@ function renderColumnsPanel() {
       state.cardSelection = 0;
       state.detailCard = null;
       state.mode = "normal";
+      normalizeFocusForCurrentCards();
       render();
     });
 
@@ -281,7 +305,9 @@ function renderDetailView(container, card) {
   container.innerHTML = `
     <div class="detail-title">${escapeHtml(card.title)}</div>
     <div class="detail-meta">
-      ID: ${idShort} | Priority: ${card.priority} | Labels: ${escapeHtml(labelsStr)}
+      <div class="detail-meta-line">ID: ${idShort}</div>
+      <div class="detail-meta-line">Priority: ${card.priority}</div>
+      <div class="detail-meta-line">Labels: ${escapeHtml(labelsStr)}</div>
     </div>
     <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px" class="detail-body${truncated ? ' truncated' : ''}">
       ${desc}
@@ -512,12 +538,10 @@ document.addEventListener("keydown", (e) => {
         if (query) {
           searchCards(query);
         } else {
-          state.mode = "normal";
+          exitSearchMode();
         }
-        render();
       } else if (e.key === "Escape") {
-        state.mode = "normal";
-        render();
+        exitSearchMode();
       }
       return;
     }
@@ -615,6 +639,7 @@ function focusNext(forward) {
     ? (idx + 1) % panels.length
     : (idx - 1 + panels.length) % panels.length;
   state.focus = panels[newIdx];
+  normalizeFocusForCurrentCards();
   if (newIdx === 2) {
     // Focus detail — select current card
     const cards = getCurrentCards();
@@ -638,12 +663,18 @@ function columnNext(forward) {
       : state.currentColumnIdx - 1;
   state.cardSelection = 0;
   state.detailCard = null;
+  normalizeFocusForCurrentCards();
   render();
 }
 
 function cardNav(forward) {
   const cards = getCurrentCards();
-  if (cards.length === 0) return;
+  if (cards.length === 0) {
+    state.focus = "columns";
+    state.detailCard = null;
+    render();
+    return;
+  }
   const newIdx = forward
     ? Math.min(state.cardSelection + 1, cards.length - 1)
     : Math.max(state.cardSelection - 1, 0);
@@ -677,9 +708,14 @@ function handleEnter() {
 }
 
 function handleEscape() {
+  if (state.mode === "searching" || state.mode === "searchingResult") {
+    exitSearchMode();
+    return;
+  }
   state.detailCard = null;
   hideAllModals();
   state.mode = "normal";
+  normalizeFocusForCurrentCards();
   render();
 }
 

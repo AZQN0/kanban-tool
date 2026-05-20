@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
@@ -86,31 +86,9 @@ fn render_main_area(frame: &mut Frame, app: &App, area: Rect) {
 fn render_columns(frame: &mut Frame, app: &App, area: Rect) {
     let mut items: Vec<ListItem> = Vec::new();
 
-    for (i, col) in app.columns.iter().enumerate() {
+    for col in &app.columns {
         let count = col.cards.len();
-        let name = col.name.clone();
-
-        let is_selected = i == app.current_column_idx;
-        let label = if is_selected {
-            format!("▶ {}", name)
-        } else {
-            format!("  {}", name)
-        };
-
-        let _style = if is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-
-        let full_line = if is_selected {
-            format!("\u{25b6} {} ({})", label, count)
-        } else {
-            format!("  {} ({})", label, count)
-        };
-        items.push(ListItem::new(full_line));
+        items.push(ListItem::new(format!("{} ({})", col.name, count)));
     }
 
     let list = List::new(items)
@@ -126,7 +104,11 @@ fn render_columns(frame: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         );
 
-    frame.render_widget(list, area);
+    let mut state = ListState::default();
+    if !app.columns.is_empty() {
+        state.select(Some(app.current_column_idx));
+    }
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 /// Render the cards panel (center).
@@ -145,22 +127,9 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
 
     let mut items: Vec<ListItem> = Vec::new();
 
-    for (i, card) in cards.iter().enumerate() {
+    for card in cards {
         let priority_indicator = priority_indicator(&card.priority);
         let title = truncate(&card.title, area.width as usize - 5);
-
-        let is_selected = i == app.card_selection;
-        let _style = if is_selected {
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::REVERSED)
-        } else if card.priority == Priority::Urgent {
-            Style::default().fg(Color::Red)
-        } else if card.priority == Priority::High {
-            Style::default().fg(Color::Magenta)
-        } else {
-            Style::default().fg(Color::White)
-        };
 
         let id_short: String = card.id.chars().take(8).collect();
         items.push(ListItem::new(format!(
@@ -186,13 +155,17 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::REVERSED),
         );
 
-    frame.render_widget(list, area);
+    let mut state = ListState::default();
+    if !cards.is_empty() {
+        state.select(Some(app.card_selection));
+    }
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 /// Render the card detail panel (right).
 fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let text = if let Some(ref card) = app.detail_card {
-        render_card_detail(card)
+        render_card_detail(card, area.height.saturating_sub(2) as usize)
     } else {
         vec![Line::from(" No card selected. ")]
     };
@@ -327,7 +300,7 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Render a card's detail information as lines of text.
-fn render_card_detail<'a>(card: &'a Card) -> Vec<Line<'a>> {
+fn render_card_detail<'a>(card: &'a Card, max_visible_lines: usize) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
 
     // Title
@@ -344,42 +317,45 @@ fn render_card_detail<'a>(card: &'a Card) -> Vec<Line<'a>> {
     } else {
         card.labels.join(", ")
     };
-    let meta = format!(
-        "ID: {} | Priority: {} | Labels: {}",
-        &card.id.chars().take(12).collect::<String>(),
-        card.priority,
-        labels_str
-    );
     lines.push(Line::from(Span::styled(
-        meta,
+        format!("ID: {}", &card.id.chars().take(12).collect::<String>()),
+        Style::default().fg(Color::Gray),
+    )));
+    lines.push(Line::from(Span::styled(
+        format!("Priority: {}", card.priority),
+        Style::default().fg(Color::Gray),
+    )));
+    lines.push(Line::from(Span::styled(
+        format!("Labels: {}", labels_str),
         Style::default().fg(Color::Gray),
     )));
 
     // Separator
     lines.push(Line::from("─".repeat(38)));
 
-    // Description body (rendered as plain text)
-    let body = &card.description;
-    let mut remaining_lines = body.lines();
-    for line in remaining_lines.by_ref() {
-        if lines.len() >= 20 {
-            break;
-        }
-        lines.push(Line::from(truncate(line, 36)));
-    }
-
-    // If description is truncated, show indicator
-    if remaining_lines.next().is_some() {
-        lines.push(Line::from(Span::styled(
-            "...(truncated)",
-            Style::default().fg(Color::Gray),
-        )));
-    }
-
     // Empty state
     if card.description.is_empty() {
+        if lines.len() < max_visible_lines {
+            lines.push(Line::from(Span::styled(
+                " (no description)",
+                Style::default().fg(Color::Gray),
+            )));
+        }
+        return lines;
+    }
+
+    let body_lines = card.description.lines().collect::<Vec<_>>();
+    let body_capacity = max_visible_lines.saturating_sub(lines.len());
+    if body_lines.len() <= body_capacity {
+        for line in body_lines {
+            lines.push(Line::from(truncate(line, 36)));
+        }
+    } else if body_capacity > 0 {
+        for line in body_lines.iter().take(body_capacity.saturating_sub(1)) {
+            lines.push(Line::from(truncate(line, 36)));
+        }
         lines.push(Line::from(Span::styled(
-            " (no description)",
+            "...(truncated)",
             Style::default().fg(Color::Gray),
         )));
     }
@@ -503,6 +479,109 @@ mod tests {
         assert!(
             !rendered.contains("P Project"),
             "rendered buffer advertised unsupported project switching: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_lists_use_highlight_without_cursor_prefixes() {
+        let backend = TestBackend::new(100, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        let mut card = Card::new(
+            "board-1",
+            "todo",
+            "Database index/perf migration",
+            "Description",
+            Priority::High,
+            vec![],
+            PathBuf::from("card.md"),
+        );
+        card.id = "80cb3f7f-card".to_string();
+        app.columns[0].cards = vec![card.clone()];
+        app.all_cards = vec![card];
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            !rendered.contains('▶'),
+            "rendered buffer used a cursor prefix instead of highlight: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_card_detail_splits_metadata_across_lines() {
+        let mut card = Card::new(
+            "board-1",
+            "todo",
+            "Database index/perf migration",
+            "Description",
+            Priority::High,
+            vec!["backend".to_string(), "reliability".to_string()],
+            PathBuf::from("card.md"),
+        );
+        card.id = "1eb51d69-a3c-extra".to_string();
+
+        let rendered = render_card_detail(&card, 20)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.into_owned())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(rendered.iter().any(|line| line == "ID: 1eb51d69-a3c"));
+        assert!(rendered.iter().any(|line| line == "Priority: high"));
+        assert!(rendered
+            .iter()
+            .any(|line| line == "Labels: backend, reliability"));
+        assert!(
+            rendered.iter().all(|line| !line.contains(" | ")),
+            "metadata should not be combined with pipe separators: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn render_card_detail_uses_available_height_before_truncating_description() {
+        let mut card = Card::new(
+            "board-1",
+            "todo",
+            "Tall detail",
+            &(1..=25)
+                .map(|line| format!("description line {line}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Priority::Medium,
+            vec![],
+            PathBuf::from("card.md"),
+        );
+        card.id = "detail-height-card".to_string();
+
+        let rendered = render_card_detail(&card, 32)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.into_owned())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            rendered.iter().any(|line| line == "description line 25"),
+            "detail should use available vertical space before truncating: {rendered:?}"
+        );
+        assert!(
+            rendered.iter().all(|line| line != "...(truncated)"),
+            "detail should not truncate when all lines fit: {rendered:?}"
         );
     }
 

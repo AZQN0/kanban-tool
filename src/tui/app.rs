@@ -109,7 +109,7 @@ impl App {
             })
             .collect();
 
-        Ok(App {
+        let mut app = App {
             running: true,
             focus: Focus::Cards,
             mode: Mode::Normal,
@@ -126,17 +126,22 @@ impl App {
             editor: None,
             message: None,
             message_time: std::time::Instant::now(),
-        })
+        };
+        app.normalize_focus_for_current_cards();
+        Ok(app)
     }
 
     /// Reload the current column's cards from the store.
     pub fn reload_current_column(&mut self) -> Result<()> {
+        let selected_card_id = self.selected_card_id();
+        let detail_was_open = self.detail_card.is_some();
         let db = db_path(&self.project_path);
         let store = Store::open(&db)?;
         let snapshot = store.load_board_snapshot(
             self.project_path.to_string_lossy().as_ref(),
             CardSort::Priority,
         )?;
+        let board_id = snapshot.board.id.clone();
         self.board_name = snapshot.board.name;
         self.columns = snapshot
             .columns
@@ -147,20 +152,34 @@ impl App {
             })
             .collect();
         self.all_cards = snapshot.all_cards;
+        if self.mode == Mode::SearchingResult && !self.search_query.is_empty() {
+            self.search_results = store.search_cards(&board_id, &self.search_query)?;
+        }
         if !self.columns.is_empty() {
             self.current_column_idx = self.current_column_idx.min(self.columns.len() - 1);
+        }
+        if let Some(card_id) = selected_card_id {
+            self.select_card_by_id(&card_id);
+            if !detail_was_open {
+                self.detail_card = None;
+            }
+        } else {
+            self.normalize_focus_for_current_cards();
         }
         Ok(())
     }
 
     /// Reload all columns.
     pub fn reload_all(&mut self) -> Result<()> {
+        let selected_card_id = self.selected_card_id();
+        let detail_was_open = self.detail_card.is_some();
         let db = db_path(&self.project_path);
         let store = Store::open(&db)?;
         let snapshot = store.load_board_snapshot(
             self.project_path.to_string_lossy().as_ref(),
             CardSort::Priority,
         )?;
+        let board_id = snapshot.board.id.clone();
 
         self.board_name = snapshot.board.name;
         self.columns = snapshot
@@ -172,8 +191,19 @@ impl App {
             })
             .collect();
         self.all_cards = snapshot.all_cards;
+        if self.mode == Mode::SearchingResult && !self.search_query.is_empty() {
+            self.search_results = store.search_cards(&board_id, &self.search_query)?;
+        }
         if !self.columns.is_empty() {
             self.current_column_idx = self.current_column_idx.min(self.columns.len() - 1);
+        }
+        if let Some(card_id) = selected_card_id {
+            self.select_card_by_id(&card_id);
+            if !detail_was_open {
+                self.detail_card = None;
+            }
+        } else {
+            self.normalize_focus_for_current_cards();
         }
         Ok(())
     }
@@ -182,7 +212,11 @@ impl App {
     pub fn current_cards(&self) -> &[Card] {
         match self.mode {
             Mode::SearchingResult => &self.search_results,
-            _ => &self.columns[self.current_column_idx].cards,
+            _ => self
+                .columns
+                .get(self.current_column_idx)
+                .map(|column| column.cards.as_slice())
+                .unwrap_or(&[]),
         }
     }
 
@@ -198,6 +232,7 @@ impl App {
             (false, Focus::Cards) => self.focus = Focus::Columns,
             (false, Focus::Detail) => self.focus = Focus::Cards,
         }
+        self.normalize_focus_for_current_cards();
     }
 
     /// Move to the next/previous column.
@@ -217,12 +252,15 @@ impl App {
         }
         self.card_selection = 0;
         self.detail_card = None;
+        self.normalize_focus_for_current_cards();
     }
 
     /// Navigate within the current cards list.
     pub fn card_nav(&mut self, forward: bool) {
         let cards = self.current_cards();
         if cards.is_empty() {
+            self.focus = Focus::Columns;
+            self.detail_card = None;
             return;
         }
         let card_count = cards.len();
@@ -284,6 +322,7 @@ impl App {
         let col_cards = &self.columns[new_col_idx].cards;
         self.card_selection = col_cards.iter().position(|c| c.id == card_id).unwrap_or(0);
         self.detail_card = col_cards.get(self.card_selection).cloned();
+        self.normalize_focus_for_current_cards();
 
         self.set_message(format!("Moved '{}' to {}", card_title, column_name));
         Ok(())
@@ -307,6 +346,7 @@ impl App {
 
         self.detail_card = None;
         self.card_selection = 0;
+        self.normalize_focus_for_current_cards();
         self.set_message(format!("Deleted '{}'", card_title));
         Ok(())
     }
@@ -326,6 +366,7 @@ impl App {
         if let Some(card) = self.search_results.first() {
             self.detail_card = Some(card.clone());
         }
+        self.normalize_focus_for_current_cards();
         Ok(())
     }
 
@@ -471,8 +512,43 @@ impl App {
                 self.current_column_idx = column_idx;
                 self.card_selection = card_idx;
                 self.detail_card = column.cards.get(card_idx).cloned();
+                self.normalize_focus_for_current_cards();
                 return;
             }
+        }
+        self.normalize_focus_for_current_cards();
+    }
+
+    fn selected_card_id(&self) -> Option<String> {
+        self.detail_card
+            .as_ref()
+            .map(|card| card.id.clone())
+            .or_else(|| {
+                self.current_cards()
+                    .get(self.card_selection)
+                    .map(|card| card.id.clone())
+            })
+    }
+
+    pub fn normalize_focus_for_current_cards(&mut self) {
+        if self.columns.is_empty() {
+            self.current_column_idx = 0;
+            self.card_selection = 0;
+            self.detail_card = None;
+            self.focus = Focus::Columns;
+            return;
+        }
+
+        self.current_column_idx = self.current_column_idx.min(self.columns.len() - 1);
+        let card_count = self.current_cards().len();
+        if card_count == 0 {
+            self.card_selection = 0;
+            self.detail_card = None;
+            if matches!(self.focus, Focus::Cards | Focus::Detail) {
+                self.focus = Focus::Columns;
+            }
+        } else {
+            self.card_selection = self.card_selection.min(card_count - 1);
         }
     }
 
@@ -514,6 +590,7 @@ pub fn run(project_path: PathBuf) -> Result<()> {
         width: terminal.size()?.width,
         height: terminal.size()?.height,
     };
+    let mut last_refresh = std::time::Instant::now();
 
     while app.running {
         // Handle events
@@ -534,6 +611,19 @@ pub fn run(project_path: PathBuf) -> Result<()> {
         if app.message_expired() {
             app.message = None;
             app.error = None;
+        }
+
+        if last_refresh.elapsed() >= std::time::Duration::from_secs(1)
+            && matches!(
+                app.mode,
+                Mode::Normal | Mode::SearchingResult | Mode::Moving | Mode::Searching
+            )
+        {
+            if let Err(e) = app.reload_all() {
+                app.error = Some(e.to_string());
+                app.message_time = std::time::Instant::now();
+            }
+            last_refresh = std::time::Instant::now();
         }
 
         // Check terminal resize
@@ -599,6 +689,65 @@ mod tests {
             create_card_with_markdown(&mut store, &card, &cards_dir(&self.project)).unwrap();
             card
         }
+    }
+
+    #[test]
+    fn app_starts_on_columns_when_initial_column_is_empty() {
+        let fixture = Fixture::new();
+        let app = App::new(fixture.project.clone()).unwrap();
+
+        assert_eq!(app.current_cards().len(), 0);
+        assert_eq!(app.focus, Focus::Columns);
+    }
+
+    #[test]
+    fn column_navigation_keeps_focus_on_empty_columns() {
+        let fixture = Fixture::new();
+        fixture.create_card("edit-non-empty");
+        let mut app = App::new(fixture.project.clone()).unwrap();
+        app.current_column_idx = app
+            .columns
+            .iter()
+            .position(|column| column.name == "backlog")
+            .unwrap();
+        app.focus = Focus::Cards;
+
+        app.column_next(true);
+
+        assert_eq!(app.current_cards().len(), 0);
+        assert_eq!(app.focus, Focus::Columns);
+    }
+
+    #[test]
+    fn reload_all_picks_up_external_card_changes() {
+        let fixture = Fixture::new();
+        let mut app = App::new(fixture.project.clone()).unwrap();
+        assert_eq!(app.all_cards.len(), 0);
+
+        fixture.create_card("external-card");
+        app.reload_all().unwrap();
+
+        assert_eq!(app.all_cards.len(), 1);
+        assert!(app
+            .columns
+            .iter()
+            .any(|column| { column.cards.iter().any(|card| card.id == "external-card") }));
+    }
+
+    #[test]
+    fn reload_all_preserves_empty_detail_when_only_list_selection_exists() {
+        let fixture = Fixture::new();
+        fixture.create_card("selected-but-no-detail");
+        let mut app = App::new(fixture.project.clone()).unwrap();
+        assert!(app.detail_card.is_none());
+
+        app.reload_all().unwrap();
+
+        assert!(app.detail_card.is_none());
+        assert_eq!(
+            app.current_cards()[app.card_selection].id,
+            "selected-but-no-detail"
+        );
     }
 
     impl Drop for Fixture {

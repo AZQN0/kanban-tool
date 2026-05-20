@@ -211,6 +211,10 @@ test.describe("Kanban WebUI E2E Tests", () => {
         await expect(page.locator("#detail-panel .detail-title")).toBeVisible({ timeout: 3000 });
         const title = await page.locator("#detail-panel .detail-title").textContent();
         expect(title).toContain("Test Card");
+        await expect(page.locator("#detail-panel .detail-meta-line")).toHaveCount(3);
+        await expect(page.locator("#detail-panel .detail-meta-line").nth(0)).toContainText(/^ID:/);
+        await expect(page.locator("#detail-panel .detail-meta-line").nth(1)).toContainText(/^Priority:/);
+        await expect(page.locator("#detail-panel .detail-meta-line").nth(2)).toContainText(/^Labels:/);
       },
     });
   });
@@ -358,6 +362,9 @@ test.describe("Kanban WebUI E2E Tests", () => {
         // Should show search results
         const title = page.locator("#cards-title");
         await expect(title).toContainText("Search Results", { timeout: 5000 });
+        await page.keyboard.press("Escape");
+        await expect(title).not.toContainText("Search Results", { timeout: 3000 });
+        await expect(page.locator("#columns-list")).toContainText("backlog");
       },
     });
   });

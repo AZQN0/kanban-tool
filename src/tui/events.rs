@@ -56,8 +56,8 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             KeyCode::Enter => {
                 let query = app.search_query.clone();
                 app.search(&query)?;
-                app.mode = Mode::Normal;
                 app.focus = Focus::Cards;
+                app.normalize_focus_for_current_cards();
             }
             KeyCode::Esc => {
                 app.mode = Mode::Normal;
@@ -81,26 +81,31 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
                 app.move_card_to("backlog")?;
                 app.mode = Mode::Normal;
                 app.focus = Focus::Cards;
+                app.normalize_focus_for_current_cards();
             }
             KeyCode::Char('t') | KeyCode::Char('1') => {
                 app.move_card_to("todo")?;
                 app.mode = Mode::Normal;
                 app.focus = Focus::Cards;
+                app.normalize_focus_for_current_cards();
             }
             KeyCode::Char('i') | KeyCode::Char('2') => {
                 app.move_card_to("in_progress")?;
                 app.mode = Mode::Normal;
                 app.focus = Focus::Cards;
+                app.normalize_focus_for_current_cards();
             }
             KeyCode::Char('r') | KeyCode::Char('3') => {
                 app.move_card_to("review")?;
                 app.mode = Mode::Normal;
                 app.focus = Focus::Cards;
+                app.normalize_focus_for_current_cards();
             }
             KeyCode::Char('d') => {
                 app.move_card_to("done")?;
                 app.mode = Mode::Normal;
                 app.focus = Focus::Cards;
+                app.normalize_focus_for_current_cards();
             }
             KeyCode::Esc => {
                 app.mode = Mode::Normal;
@@ -160,6 +165,7 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             app.detail_card = None;
             app.mode = Mode::Normal;
             app.focus = Focus::Cards;
+            app.normalize_focus_for_current_cards();
         }
 
         // m: start moving selected card

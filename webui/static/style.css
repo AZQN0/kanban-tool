@@ -157,6 +157,10 @@ body {
   word-break: break-word;
 }
 
+.detail-meta-line {
+  line-height: 1.35;
+}
+
 .detail-body {
   color: var(--text);
   line-height: 1.5;
