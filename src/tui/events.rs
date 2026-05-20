@@ -42,7 +42,7 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
                     app.save_editor()?;
                 }
             }
-            KeyCode::Char(c) if modifiers == KeyModifiers::NONE => {
+            KeyCode::Char(c) if is_text_input_modifier(modifiers) => {
                 app.editor_insert_char(c);
             }
             _ => {}
@@ -66,7 +66,7 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             KeyCode::Backspace => {
                 app.search_query.pop();
             }
-            KeyCode::Char(c) if modifiers == KeyModifiers::NONE => {
+            KeyCode::Char(c) if is_text_input_modifier(modifiers) => {
                 app.search_query.push(c);
             }
             _ => {}
@@ -199,6 +199,10 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
     }
 
     Ok(())
+}
+
+fn is_text_input_modifier(modifiers: KeyModifiers) -> bool {
+    !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
 }
 
 #[cfg(test)]
@@ -386,6 +390,50 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.editor.as_ref().unwrap().title, "Test card!");
+    }
+
+    #[test]
+    fn editor_accepts_shifted_text_input_in_editable_fields() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT),
+            &mut app,
+        )
+        .unwrap();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT),
+            &mut app,
+        )
+        .unwrap();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT),
+            &mut app,
+        )
+        .unwrap();
+
+        let editor = app.editor.as_ref().unwrap();
+        assert_eq!(editor.title, "Test cardX");
+        assert_eq!(editor.description, "DescriptionY");
+        assert_eq!(editor.labels_input, "Z");
     }
 
     #[test]
