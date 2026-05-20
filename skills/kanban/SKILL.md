@@ -24,6 +24,8 @@ For release builds: `./target/release/kanban`
 
 If installed system-wide (e.g. via `cargo install`), use `kanban` directly.
 
+To include the WebUI (browser-based interface), build with `--features webui`.
+
 ## Board Structure
 
 Each project has its own board stored in `.kanban/`:
@@ -124,6 +126,32 @@ kanban search "auth" --project /path/to/project
 
 Searches across card titles and descriptions.
 
+### Terminal UI (TUI)
+
+```bash
+kanban board
+```
+
+Launches a full keyboard-driven terminal UI with 3-panel layout (columns / cards / detail). See the [README](../../README.md) for TUI key bindings.
+
+### WebUI (Browser-based)
+
+```bash
+kanban webui                     # http://127.0.0.1:9876
+kanban webui --port 8080         # Custom port
+kanban webui --bind 0.0.0.0      # Bind all interfaces
+```
+
+Requires build with `--features webui`. Provides a browser-based kanban board with live updates via SSE, keyboard navigation, modals, and search. See the [README](../../README.md) for WebUI key bindings and REST API docs.
+
+### MCP Server
+
+```bash
+kanban server
+```
+
+Starts the MCP server on stdio. Exposes 8 tools for programmatic card management. See the [README](../../README.md) for the full tool table.
+
 ## MCP Server Tools
 
 Start with `kanban server` (runs over stdio). Available tools:
@@ -194,7 +222,26 @@ kanban update <CARD_ID> --priority urgent --description "Critical issue"
 kanban delete <CARD_ID>
 ```
 
-### 6. Manage with MCP
+### 6. Use the TUI
+
+For a visual terminal experience:
+
+```bash
+kanban board
+# Navigate with j/k (up/down), h/l (panel focus)
+# Press m to move, D to delete, e to edit
+```
+
+### 7. Use the WebUI
+
+For a browser-based experience (requires `--features webui`):
+
+```bash
+kanban webui --port 8080
+# Navigate with j/k, h/l, m (move), D (delete), / (search)
+```
+
+### 8. Manage with MCP
 
 Use the MCP server tools programmatically. Example:
 
@@ -212,6 +259,7 @@ Use the MCP server tools programmatically. Example:
 - **Multi-project** — use `--project` flag or `kanban board` (TUI) to switch between boards.
 - **Labels** — add multiple with repeated `--label` flags for categorization. Multiple labels filter as AND (card must have all specified labels).
 - **Priority ordering** — `urgent` > `high` > `medium` > `low` > `backlog`.
+- **Three interfaces** — Use CLI for scripting, TUI for terminal work, WebUI for browser-based collaboration, and MCP for AI agent integration.
 
 ## Card File Format
 
@@ -232,4 +280,28 @@ updated_at: 2026-05-19T...
 ---
 
 Card description body (markdown)
+```
+
+## WebUI REST API
+
+When the WebUI server is running, it exposes these REST endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/boards` | List all boards |
+| `GET` | `/api/cards` | Get all cards grouped by column |
+| `GET` | `/api/cards/:id` | Get a single card |
+| `POST` | `/api/cards` | Create a new card |
+| `PATCH` | `/api/cards/:id` | Update card fields |
+| `DELETE` | `/api/cards/:id` | Delete a card |
+| `POST` | `/api/cards/:id/move` | Move card to column |
+| `GET` | `/api/cards/search?q=term` | Search cards |
+| `GET` | `/api/events` | SSE feed for live updates |
+
+Example — create a card via REST:
+
+```bash
+curl -X POST http://127.0.0.1:9876/api/cards \
+  -H "Content-Type: application/json" \
+  -d '{"title":"New card","priority":"high","labels":["backend"]}'
 ```

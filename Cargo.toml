@@ -1,6 +1,6 @@
 [package]
 name = "kanban"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "A kanban board system for coding agents across multiple projects"
 
@@ -28,10 +28,12 @@ tokio-stream = "0.1"
 
 # WebUI (optional)
 axum = { version = "0.7", optional = true }
-tower = { version = "0.5", optional = true }
-tower-http = { version = "0.5", features = ["fs", "trace"], optional = true }
+tower-http = { version = "0.5", features = ["trace"], optional = true }
 mime_guess = { version = "2", optional = true }
 
 [features]
 default = []
 webui = ["dep:axum", "dep:tower-http", "dep:mime_guess"]
+
+[dev-dependencies]
+serde_json = "1"
