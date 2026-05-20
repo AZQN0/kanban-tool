@@ -162,7 +162,7 @@ fn main() -> Result<()> {
             {
                 let project_path = std::fs::canonicalize(".")
                     .context("Cannot resolve current directory")?;
-                webui::server::run(project_path, bind, port)?;
+                webui::server::run(project_path, &bind, port)?;
             }
             #[cfg(not(feature = "webui"))]
             {
