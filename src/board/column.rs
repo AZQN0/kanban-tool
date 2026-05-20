@@ -1,4 +1,3 @@
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::kanban::config::DEFAULT_COLUMNS;

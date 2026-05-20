@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use chrono::DateTime;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
@@ -115,16 +117,13 @@ pub fn render_markdown(md: &str) -> String {
     let parser = Parser::new_ext(md, options);
     
     let mut result = String::new();
-    let mut in_code_block = false;
     
     for event in parser {
         match event {
             Event::Start(Tag::CodeBlock(_)) => {
-                in_code_block = true;
                 result.push_str("```\n");
             }
             Event::End(TagEnd::CodeBlock) => {
-                in_code_block = false;
                 result.push_str("```\n");
             }
             Event::Text(text) => {

@@ -148,9 +148,9 @@ impl UpdateCardTool {
             )));
         }
         let db = db_path(&project_path);
-        let mut store = Store::open(&db)
+        let store = Store::open(&db)
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
-        let mut card = store.get_card(&self.card_id)
+        let card = store.get_card(&self.card_id)
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let mut new_column_id: Option<String> = None;
@@ -489,7 +489,7 @@ impl ManageBoardTool {
                     )));
                 }
                 let db = db_path(&project_path);
-                let mut store = Store::open(&db)
+                let store = Store::open(&db)
                     .map_err(|e| CallToolError::from_message(e.to_string()))?;
                 let board = store.get_board(&project_path.to_string_lossy())
                     .map_err(|e| CallToolError::from_message(e.to_string()))?;

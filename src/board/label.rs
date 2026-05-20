@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use super::card::Card;
 
 /// Extract unique labels from a list of cards.

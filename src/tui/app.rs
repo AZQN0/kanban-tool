@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event as CEvent, KeyEventKind};
 use std::path::PathBuf;
@@ -359,15 +361,9 @@ pub fn run(project_path: PathBuf) -> Result<()> {
         }
 
         // Clear expired messages
-        if let Some(ref msg) = app.message {
-            if app.message_expired() {
-                app.message = None;
-            }
-        }
-        if let Some(ref err) = app.error {
-            if app.message_expired() {
-                app.error = None;
-            }
+        if app.message_expired() {
+            app.message = None;
+            app.error = None;
         }
 
         // Check terminal resize

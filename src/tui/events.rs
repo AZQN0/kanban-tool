@@ -75,7 +75,7 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
         match key_code {
             KeyCode::Enter => {
                 if !app.all_projects.is_empty() && app.project_picker_idx < app.all_projects.len() {
-                    let (path, name) = &app.all_projects[app.project_picker_idx];
+                    let (path, _name) = &app.all_projects[app.project_picker_idx];
                     if path != &app.project_path {
                         // Reload the app with new project path
                         let new_app = super::app::App::new(path.clone())?;

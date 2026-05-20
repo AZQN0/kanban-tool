@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod store;
 pub mod card;
 pub mod column;

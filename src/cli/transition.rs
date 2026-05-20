@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use std::path::PathBuf;
 
-use crate::board::card::Card;
 use crate::board::store::Store;
 use crate::kanban::config::{cards_dir, db_path, is_initialized};
 use crate::markdown::writer::{card_file_path, sync_card};

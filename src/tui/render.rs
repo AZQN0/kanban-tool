@@ -93,7 +93,7 @@ fn render_columns(frame: &mut Frame, app: &App, area: Rect) {
             format!("  {}", name)
         };
 
-        let style = if is_selected {
+        let _style = if is_selected {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
@@ -139,7 +139,7 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         let title = truncate(&card.title, area.width as usize - 5);
 
         let is_selected = i == app.card_selection;
-        let style = if is_selected {
+        let _style = if is_selected {
             Style::default().fg(Color::White).add_modifier(Modifier::REVERSED)
         } else if card.priority == Priority::Urgent {
             Style::default().fg(Color::Red)
@@ -245,7 +245,7 @@ fn render_project_picker(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Render the move column popup.
-fn render_move_popup(frame: &mut Frame, app: &App, area: Rect) {
+fn render_move_popup(frame: &mut Frame, _app: &App, area: Rect) {
     let popup_area = center_rect(area, 50, 8);
     let block = Block::default()
         .borders(Borders::ALL)

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::board::column::Column;
 use std::path::{Path, PathBuf};
 

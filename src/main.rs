@@ -158,12 +158,18 @@ fn main() -> Result<()> {
             tui::app::run(project_path)?;
         }
         Commands::WebUI { bind, port } => {
-            let project_path = std::fs::canonicalize(".")
-                .context("Cannot resolve current directory")?;
             #[cfg(feature = "webui")]
-            webui::server::run(project_path, &bind, port)?;
+            {
+                let project_path = std::fs::canonicalize(".")
+                    .context("Cannot resolve current directory")?;
+                webui::server::run(project_path, bind, port)?;
+            }
             #[cfg(not(feature = "webui"))]
-            eprintln!("WebUI feature not enabled. Build with --features webui");
+            {
+                let _bind = bind;
+                let _port = port;
+                eprintln!("WebUI feature not enabled. Build with --features webui");
+            }
         }
         Commands::Server => {
             println!("Starting Kanban MCP server on stdio...");
