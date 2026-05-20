@@ -301,17 +301,16 @@ fn render_text_editor(frame: &mut Frame, editor: &super::app::EditorState, area:
         .style(Style::default().fg(Color::Cyan).bg(Color::Black));
     let inner = block.inner(popup_area);
 
-    let lines = text_editor_lines(value, cursor, multiline, 64);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    let lines = text_editor_lines(value, cursor, multiline, 64, chunks[0].height as usize);
     let help = if multiline {
         "Arrows Move  Enter Newline  Ctrl+S Done  Esc Cancel"
     } else {
         "←/→ Move  Home/End Jump  Enter/Ctrl+S Done  Esc Cancel"
     };
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(inner);
 
     let paragraph = Paragraph::new(lines)
         .alignment(Alignment::Left)
@@ -535,16 +534,59 @@ fn text_editor_lines(
     cursor: usize,
     multiline: bool,
     max_width: usize,
+    max_height: usize,
 ) -> Vec<Line<'static>> {
-    let rendered = editor_display_value(value, cursor, true, max_width);
-    if multiline {
-        rendered
-            .split(" / ")
-            .map(|line| Line::from(line.to_string()))
-            .collect()
-    } else {
-        vec![Line::from(rendered)]
+    if !multiline {
+        return vec![Line::from(editor_display_value(
+            value, cursor, true, max_width,
+        ))];
     }
+
+    let (lines, cursor_line) = multiline_editor_lines(value, cursor, max_width);
+    if lines.len() <= max_height {
+        return lines.into_iter().map(Line::from).collect();
+    }
+
+    let start = if cursor_line >= max_height {
+        cursor_line + 1 - max_height
+    } else {
+        0
+    };
+    lines
+        .into_iter()
+        .skip(start)
+        .take(max_height)
+        .map(Line::from)
+        .collect()
+}
+
+fn multiline_editor_lines(value: &str, cursor: usize, max_width: usize) -> (Vec<String>, usize) {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut cursor_line = 0;
+    let mut line_idx = 0;
+    let mut inserted_cursor = false;
+
+    for (idx, ch) in value.chars().enumerate() {
+        if idx == cursor {
+            current.push('█');
+            cursor_line = line_idx;
+            inserted_cursor = true;
+        }
+        if ch == '\n' {
+            lines.push(truncate_around_cursor(&current, max_width));
+            current.clear();
+            line_idx += 1;
+        } else {
+            current.push(ch);
+        }
+    }
+    if !inserted_cursor {
+        current.push('█');
+        cursor_line = line_idx;
+    }
+    lines.push(truncate_around_cursor(&current, max_width));
+    (lines, cursor_line)
 }
 
 fn truncate_around_cursor(value: &str, max_width: usize) -> String {
@@ -972,6 +1014,91 @@ mod tests {
         assert!(
             help_y >= 21,
             "controls should be pinned near popup bottom, found row {help_y}"
+        );
+    }
+
+    #[test]
+    fn render_multiline_text_editor_displays_real_lines_without_slash_separator() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        app.mode = Mode::Editing;
+        app.editor = Some(super::super::app::EditorState {
+            card_id: "card-1".to_string(),
+            field: super::super::app::EditorField::Description,
+            editing_text: true,
+            text_edit_original: Some("first\nsecond".to_string()),
+            title: String::new(),
+            title_cursor: 0,
+            description: "first\nsecond".to_string(),
+            description_cursor: "first\nsecond".chars().count(),
+            priority: Priority::High,
+            labels_input: String::new(),
+            labels_cursor: 0,
+            dirty: false,
+        });
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("first"), "missing first line: {rendered}");
+        assert!(
+            rendered.contains("second█"),
+            "missing second line with cursor: {rendered}"
+        );
+        assert!(
+            !rendered.contains("first / second"),
+            "multiline editor should not flatten lines with slash separators: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_multiline_text_editor_scrolls_to_keep_cursor_visible() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        let description = (1..=30)
+            .map(|idx| format!("line {idx}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        app.mode = Mode::Editing;
+        app.editor = Some(super::super::app::EditorState {
+            card_id: "card-1".to_string(),
+            field: super::super::app::EditorField::Description,
+            editing_text: true,
+            text_edit_original: Some(description.clone()),
+            title: String::new(),
+            title_cursor: 0,
+            description_cursor: description.chars().count(),
+            description,
+            priority: Priority::High,
+            labels_input: String::new(),
+            labels_cursor: 0,
+            dirty: false,
+        });
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            rendered.contains("line 30█"),
+            "cursor line should be visible: {rendered}"
+        );
+        assert!(
+            !rendered.contains("line 1 "),
+            "top lines should scroll out when cursor is near bottom: {rendered}"
         );
     }
 }

@@ -218,11 +218,7 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             app.detail_card = None;
         }
         KeyCode::Enter if app.focus == Focus::Cards => {
-            let cards = app.current_cards();
-            if let Some(card) = cards.get(app.card_selection) {
-                app.detail_card = Some(card.clone());
-                app.focus = Focus::Detail;
-            }
+            app.start_editing_selected_card()?;
         }
         // Enter: unfocus detail view
         KeyCode::Enter if app.focus == Focus::Detail => {
@@ -373,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_from_selected_card_focuses_detail() {
+    fn enter_from_selected_card_opens_editor() {
         let mut app = test_app_with_card();
 
         handle_key(
@@ -382,11 +378,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(app.focus, Focus::Detail);
-        assert_eq!(
-            app.detail_card.as_ref().map(|card| card.id.as_str()),
-            Some("test-card")
-        );
+        assert_eq!(app.mode, Mode::Editing);
+        assert_eq!(app.editor.as_ref().unwrap().card_id, "test-card");
     }
 
     #[test]
