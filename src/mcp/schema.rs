@@ -6,14 +6,17 @@ use rust_mcp_sdk::{
 };
 
 use crate::board::card::Card;
+use crate::board::card::Priority;
 use crate::board::column::Column;
 use crate::board::store::Store;
 use crate::kanban::config::{cards_dir, db_path, is_initialized};
 use crate::kanban::init::init_board;
-use crate::board::card::Priority;
+use crate::persistence::{
+    create_card_with_markdown, delete_card_with_markdown, move_card_with_markdown,
+    update_card_with_markdown, CardPatch,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use rusqlite::params;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool parameter structs
@@ -21,7 +24,7 @@ use rusqlite::params;
 
 #[mcp_tool(
     name = "create_card",
-    description = "Create a new kanban card in a project's board. Returns the card ID.",
+    description = "Create a new kanban card in a project's board. Returns the card ID."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct CreateCardTool {
@@ -48,9 +51,9 @@ impl CreateCardTool {
         }
         let (board_id, column_id, priority) = {
             let db = db_path(&project_path);
-            let store = Store::open(&db)
-                .map_err(|e| CallToolError::from_message(e.to_string()))?;
-            let board = store.get_board(&project_path.to_string_lossy())
+            let store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+            let board = store
+                .get_board(&project_path.to_string_lossy())
                 .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
             let column_id = resolve_column(&board, &self.column)?;
@@ -71,25 +74,24 @@ impl CreateCardTool {
             PathBuf::from(format!("{}.md", uuid::Uuid::new_v4().to_string())),
         );
 
-        let card_id = store.create_card(&card)
+        let card_id = create_card_with_markdown(&mut store, &card, &cards_dir(&project_path))
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        crate::markdown::writer::sync_card(&card, &cards_dir(&project_path))
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-
-        let col_name = get_column_name(&store, &project_path, &column_id)
-            .unwrap_or_else(|| "?".to_string());
+        let col_name =
+            get_column_name(&store, &project_path, &column_id).unwrap_or_else(|| "?".to_string());
 
         Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!(r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
-                card_id, self.title, col_name),
+            format!(
+                r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
+                card_id, self.title, col_name
+            ),
         )]))
     }
 }
 
 #[mcp_tool(
     name = "get_card",
-    description = "Get a kanban card by its ID. Returns the full card data including description.",
+    description = "Get a kanban card by its ID. Returns the full card data including description."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct GetCardTool {
@@ -108,9 +110,9 @@ impl GetCardTool {
             )));
         }
         let db = db_path(&project_path);
-        let store = Store::open(&db)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-        let card = store.get_card(&self.card_id)
+        let store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let card = store
+            .get_card(&self.card_id)
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let json = serde_json::to_string_pretty(&card)
@@ -121,7 +123,7 @@ impl GetCardTool {
 
 #[mcp_tool(
     name = "update_card",
-    description = "Update a kanban card's fields. Returns updated card summary.",
+    description = "Update a kanban card's fields. Returns updated card summary."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct UpdateCardTool {
@@ -148,84 +150,56 @@ impl UpdateCardTool {
             )));
         }
         let db = db_path(&project_path);
-        let store = Store::open(&db)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-        let card = store.get_card(&self.card_id)
+        let mut store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let card = store
+            .get_card(&self.card_id)
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let mut new_column_id: Option<String> = None;
 
         if let Some(ref col_name) = self.column {
-            let board = store.get_board(&project_path.to_string_lossy())
+            let board = store
+                .get_board(&project_path.to_string_lossy())
                 .map_err(|e| CallToolError::from_message(e.to_string()))?;
             let col = resolve_column(&board, &Some(col_name.clone()))
                 .map_err(|e| CallToolError::from_message(e.to_string()))?;
             new_column_id = Some(col);
         }
 
-        let new_priority = self.priority.as_ref()
+        let new_priority = self
+            .priority
+            .as_ref()
             .map(|p| resolve_priority(&Some(p.clone())).unwrap_or(card.priority.clone()));
 
-        if let Some(ref labels) = self.labels {
-            let labels_json = serde_json::to_string(labels).unwrap_or_default();
-            store.conn.execute(
-                "UPDATE cards SET title = COALESCE(?, title), description = COALESCE(?, description), column_id = COALESCE(?, column_id), priority = COALESCE(?, priority), labels = COALESCE(?, labels), updated_at = datetime('now') WHERE id = ?",
-                params![
-                    self.title.as_deref(),
-                    self.description.as_deref(),
-                    new_column_id.as_deref(),
-                    new_priority.as_ref().map(|p| p.to_string()),
-                    Some(labels_json.as_str()),
-                    &self.card_id,
-                ],
-            ).map_err(|e| CallToolError::from_message(e.to_string()))?;
-        } else {
-            let mut clauses: Vec<String> = Vec::new();
-            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-            if self.title.is_some() {
-                clauses.push("title = ?".to_string());
-                params.push(Box::new(self.title.clone()));
-            }
-            if self.description.is_some() {
-                clauses.push("description = ?".to_string());
-                params.push(Box::new(self.description.clone()));
-            }
-            if new_column_id.is_some() {
-                clauses.push("column_id = ?".to_string());
-                params.push(Box::new(new_column_id.clone()));
-            }
-            if new_priority.is_some() {
-                clauses.push("priority = ?".to_string());
-                params.push(Box::new(new_priority.as_ref().map(|p| p.to_string())));
-            }
-
-            if !clauses.is_empty() {
-                clauses.push("updated_at = datetime('now')".to_string());
-                let query = format!("UPDATE cards SET {} WHERE id = ?", clauses.join(", "));
-                store.conn.execute(&query, rusqlite::params_from_iter(params.iter().map(|v| v.as_ref())))
-                    .map_err(|e| CallToolError::from_message(e.to_string()))?;
-            }
-        }
-
-        let updated = store.get_card(&self.card_id)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-        crate::markdown::writer::sync_card(&updated, &cards_dir(&project_path))
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let updated = update_card_with_markdown(
+            &mut store,
+            &self.card_id,
+            CardPatch {
+                title: self.title.clone(),
+                description: self.description.clone(),
+                column_id: new_column_id,
+                priority: new_priority,
+                labels: self.labels.clone(),
+            },
+            &cards_dir(&project_path),
+        )
+        .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let col_name = get_column_name(&store, &project_path, &updated.column_id)
             .unwrap_or_else(|| "?".to_string());
 
         Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!(r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
-                updated.id, updated.title, col_name),
+            format!(
+                r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
+                updated.id, updated.title, col_name
+            ),
         )]))
     }
 }
 
 #[mcp_tool(
     name = "delete_card",
-    description = "Delete a kanban card by its ID. Returns confirmation.",
+    description = "Delete a kanban card by its ID. Returns confirmation."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct DeleteCardTool {
@@ -242,16 +216,9 @@ impl DeleteCardTool {
             )));
         }
         let db = db_path(&project_path);
-        let mut store = Store::open(&db)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let mut store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        let _card = store.get_card(&self.card_id)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-
-        crate::markdown::writer::remove_card_file(&self.card_id, &cards_dir(&project_path))
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-
-        store.delete_card(&self.card_id)
+        delete_card_with_markdown(&mut store, &self.card_id, &cards_dir(&project_path))
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         Ok(CallToolResult::text_content(vec![TextContent::from(
@@ -262,7 +229,7 @@ impl DeleteCardTool {
 
 #[mcp_tool(
     name = "list_cards",
-    description = "List kanban cards with optional filters. Returns an array of card summaries.",
+    description = "List kanban cards with optional filters. Returns an array of card summaries."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct ListCardsTool {
@@ -290,40 +257,52 @@ impl ListCardsTool {
             )));
         }
         let db = db_path(&project_path);
-        let store = Store::open(&db)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-        let board = store.get_board(&project_path.to_string_lossy())
+        let store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let board = store
+            .get_board(&project_path.to_string_lossy())
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        let column_id = self.column.as_ref()
+        let column_id = self
+            .column
+            .as_ref()
             .and_then(|name| Column::find_by_name(&board.columns, name).map(|c| c.id.as_str()));
 
-        let cards = store.list_cards(
-            &board.id,
-            column_id,
-            self.priority.as_deref(),
-            self.labels.as_deref(),
-            "created",
-        ).map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let cards = store
+            .list_cards(
+                &board.id,
+                column_id,
+                self.priority.as_deref(),
+                self.labels.as_deref(),
+                "created",
+            )
+            .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        let cards: Vec<_> = match (self.offset.map(|v| v as usize), self.limit.map(|v| v as usize)) {
+        let cards: Vec<_> = match (
+            self.offset.map(|v| v as usize),
+            self.limit.map(|v| v as usize),
+        ) {
             (Some(off), Some(lim)) => cards.into_iter().skip(off).take(lim).collect(),
             (Some(off), None) => cards.into_iter().skip(off).collect(),
             (None, Some(lim)) => cards.into_iter().take(lim).collect(),
             (None, None) => cards,
         };
 
-        let col_names: HashMap<&str, &str> = board.columns.iter()
+        let col_names: HashMap<&str, &str> = board
+            .columns
+            .iter()
             .map(|c| (c.id.as_str(), c.name.as_str()))
             .collect();
 
-        let summaries: Vec<String> = cards.iter().map(|c| {
-            let col = col_names.get(c.column_id.as_str()).map_or("?", |s| *s);
-            format!(
-                r#"{{"id": "{}", "title": "{}", "column": "{}", "priority": "{}"}}"#,
-                c.id, c.title, col, c.priority
-            )
-        }).collect();
+        let summaries: Vec<String> = cards
+            .iter()
+            .map(|c| {
+                let col = col_names.get(c.column_id.as_str()).map_or("?", |s| *s);
+                format!(
+                    r#"{{"id": "{}", "title": "{}", "column": "{}", "priority": "{}"}}"#,
+                    c.id, c.title, col, c.priority
+                )
+            })
+            .collect();
 
         Ok(CallToolResult::text_content(vec![TextContent::from(
             format!("[{}]", summaries.join(", ")),
@@ -333,7 +312,7 @@ impl ListCardsTool {
 
 #[mcp_tool(
     name = "transition_card",
-    description = "Move a kanban card to a different column. Returns the updated card info.",
+    description = "Move a kanban card to a different column. Returns the updated card info."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct TransitionCardTool {
@@ -351,35 +330,34 @@ impl TransitionCardTool {
             )));
         }
         let db = db_path(&project_path);
-        let mut store = Store::open(&db)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-        let board = store.get_board(&project_path.to_string_lossy())
+        let mut store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let board = store
+            .get_board(&project_path.to_string_lossy())
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let column_id = resolve_column(&board, &Some(self.column.clone()))
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        let card = store.get_card(&self.card_id)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-
-        store.transition_card(&self.card_id, &column_id)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-
-        let mut updated_card = card.clone();
-        updated_card.column_id = column_id;
-        crate::markdown::writer::sync_card(&updated_card, &cards_dir(&project_path))
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let updated = move_card_with_markdown(
+            &mut store,
+            &self.card_id,
+            &column_id,
+            &cards_dir(&project_path),
+        )
+        .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!(r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
-                self.card_id, card.title, self.column),
+            format!(
+                r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
+                self.card_id, updated.title, self.column
+            ),
         )]))
     }
 }
 
 #[mcp_tool(
     name = "search_cards",
-    description = "Search kanban cards by query string across title and description.",
+    description = "Search kanban cards by query string across title and description."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct SearchCardsTool {
@@ -398,15 +376,18 @@ impl SearchCardsTool {
             )));
         }
         let db = db_path(&project_path);
-        let store = Store::open(&db)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-        let board = store.get_board(&project_path.to_string_lossy())
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
-
-        let cards = store.search_cards(&board.id, &self.query)
+        let store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+        let board = store
+            .get_board(&project_path.to_string_lossy())
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        let col_names: HashMap<&str, &str> = board.columns.iter()
+        let cards = store
+            .search_cards(&board.id, &self.query)
+            .map_err(|e| CallToolError::from_message(e.to_string()))?;
+
+        let col_names: HashMap<&str, &str> = board
+            .columns
+            .iter()
             .map(|c| (c.id.as_str(), c.name.as_str()))
             .collect();
 
@@ -426,7 +407,7 @@ impl SearchCardsTool {
 
 #[mcp_tool(
     name = "manage_board",
-    description = "Manage kanban boards: init a new board, add or remove columns.",
+    description = "Manage kanban boards: init a new board, add or remove columns."
 )]
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct ManageBoardTool {
@@ -444,9 +425,16 @@ impl ManageBoardTool {
                 let project_path = resolve_project(&self.project)?;
                 match init_board(&project_path) {
                     Ok(board) => Ok(CallToolResult::text_content(vec![TextContent::from(
-                        format!(r#"{{"board_id": "{}", "name": "{}", "columns": [{}]}}"#,
-                            board.id, board.name,
-                            board.columns.iter().map(|c| format!("\"{}\"", c.name)).collect::<Vec<_>>().join(", ")
+                        format!(
+                            r#"{{"board_id": "{}", "name": "{}", "columns": [{}]}}"#,
+                            board.id,
+                            board.name,
+                            board
+                                .columns
+                                .iter()
+                                .map(|c| format!("\"{}\"", c.name))
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         ),
                     )])),
                     Err(e) => Err(CallToolError::from_message(e.to_string())),
@@ -456,25 +444,31 @@ impl ManageBoardTool {
                 let project_path = resolve_project(&self.project)?;
                 if !is_initialized(&project_path) {
                     return Err(CallToolError::from_message(format!(
-                        "Project at {:?} is not initialized.", project_path
+                        "Project at {:?} is not initialized.",
+                        project_path
                     )));
                 }
                 let db = db_path(&project_path);
-                let mut store = Store::open(&db)
-                    .map_err(|e| CallToolError::from_message(e.to_string()))?;
-                let board = store.get_board(&project_path.to_string_lossy())
+                let mut store =
+                    Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+                let board = store
+                    .get_board(&project_path.to_string_lossy())
                     .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-                let name = self.column_name.as_deref()
-                    .ok_or_else(|| CallToolError::from_message("column_name is required for add_column"))?;
+                let name = self.column_name.as_deref().ok_or_else(|| {
+                    CallToolError::from_message("column_name is required for add_column")
+                })?;
 
-                let max_order = board.columns.iter()
+                let max_order = board
+                    .columns
+                    .iter()
                     .map(|c| c.sort_order)
                     .max()
                     .unwrap_or(0);
 
                 let new_col = Column::new(&board.id, name, max_order + 1);
-                store.add_column(&new_col)
+                store
+                    .add_column(&new_col)
                     .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
                 Ok(CallToolResult::text_content(vec![TextContent::from(
@@ -485,42 +479,50 @@ impl ManageBoardTool {
                 let project_path = resolve_project(&self.project)?;
                 if !is_initialized(&project_path) {
                     return Err(CallToolError::from_message(format!(
-                        "Project at {:?} is not initialized.", project_path
+                        "Project at {:?} is not initialized.",
+                        project_path
                     )));
                 }
                 let db = db_path(&project_path);
-                let store = Store::open(&db)
-                    .map_err(|e| CallToolError::from_message(e.to_string()))?;
-                let board = store.get_board(&project_path.to_string_lossy())
+                let store =
+                    Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
+                let board = store
+                    .get_board(&project_path.to_string_lossy())
                     .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-                let col_name = self.column_name.as_deref()
-                    .ok_or_else(|| CallToolError::from_message("column_name is required for remove_column"))?;
+                let col_name = self.column_name.as_deref().ok_or_else(|| {
+                    CallToolError::from_message("column_name is required for remove_column")
+                })?;
 
-                let col = Column::find_by_name(&board.columns, col_name)
-                    .ok_or_else(|| CallToolError::from_message(format!("Unknown column '{}'", col_name)))?;
+                let col = Column::find_by_name(&board.columns, col_name).ok_or_else(|| {
+                    CallToolError::from_message(format!("Unknown column '{}'", col_name))
+                })?;
                 let col_id = &col.id;
 
-                let cards = store.list_cards(&board.id, Some(col_id.as_str()), None, None, "created")
+                let cards = store
+                    .list_cards(&board.id, Some(col_id.as_str()), None, None, "created")
                     .map_err(|e| CallToolError::from_message(e.to_string()))?;
                 if !cards.is_empty() {
-                    return Err(CallToolError::from_message(
-                        format!("Column '{}' has {} card(s). Move or delete them first.", col_name, cards.len())
-                    ));
+                    return Err(CallToolError::from_message(format!(
+                        "Column '{}' has {} card(s). Move or delete them first.",
+                        col_name,
+                        cards.len()
+                    )));
                 }
 
-                store.conn.execute(
-                    "DELETE FROM columns WHERE id = ?",
-                    [col_id],
-                ).map_err(|e| CallToolError::from_message(e.to_string()))?;
+                store
+                    .conn
+                    .execute("DELETE FROM columns WHERE id = ?", [col_id])
+                    .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
                 Ok(CallToolResult::text_content(vec![TextContent::from(
                     format!("Column '{}' removed from board '{}'.", col_name, board.name),
                 )]))
             }
-            _ => Err(CallToolError::from_message(
-                format!("Unknown action: '{}'. Use 'init', 'add_column', or 'remove_column'.", self.action)
-            )),
+            _ => Err(CallToolError::from_message(format!(
+                "Unknown action: '{}'. Use 'init', 'add_column', or 'remove_column'.",
+                self.action
+            ))),
         }
     }
 }
@@ -528,16 +530,19 @@ impl ManageBoardTool {
 // ─────────────────────────────────────────────────────────────────────────────
 // Enum that combines all tool variants
 // ─────────────────────────────────────────────────────────────────────────────
-tool_box!(KanbanTools, [
-    CreateCardTool,
-    GetCardTool,
-    UpdateCardTool,
-    DeleteCardTool,
-    ListCardsTool,
-    TransitionCardTool,
-    SearchCardsTool,
-    ManageBoardTool,
-]);
+tool_box!(
+    KanbanTools,
+    [
+        CreateCardTool,
+        GetCardTool,
+        UpdateCardTool,
+        DeleteCardTool,
+        ListCardsTool,
+        TransitionCardTool,
+        SearchCardsTool,
+        ManageBoardTool,
+    ]
+);
 
 impl Default for KanbanTools {
     fn default() -> Self {
@@ -556,11 +561,11 @@ impl Default for KanbanTools {
 // Server handler
 // ─────────────────────────────────────────────────────────────────────────────
 
-use rust_mcp_sdk::mcp_server::ServerHandler;
 use async_trait::async_trait;
+use rust_mcp_sdk::mcp_server::ServerHandler;
+use rust_mcp_sdk::schema::{ListToolsResult, PaginatedRequestParams};
 use rust_mcp_sdk::{schema::RpcError, McpServer};
 use std::sync::Arc;
-use rust_mcp_sdk::schema::{ListToolsResult, PaginatedRequestParams};
 
 pub struct KanbanHandler;
 
@@ -582,8 +587,12 @@ impl ServerHandler for KanbanHandler {
         &self,
         params: rust_mcp_sdk::schema::CallToolRequestParams,
         _runtime: Arc<dyn McpServer>,
-    ) -> std::result::Result<rust_mcp_sdk::schema::CallToolResult, rust_mcp_sdk::schema::schema_utils::CallToolError> {
-        let tool: KanbanTools = KanbanTools::try_from(params).map_err(rust_mcp_sdk::schema::schema_utils::CallToolError::new)?;
+    ) -> std::result::Result<
+        rust_mcp_sdk::schema::CallToolResult,
+        rust_mcp_sdk::schema::schema_utils::CallToolError,
+    > {
+        let tool: KanbanTools = KanbanTools::try_from(params)
+            .map_err(rust_mcp_sdk::schema::schema_utils::CallToolError::new)?;
 
         match tool {
             KanbanTools::CreateCardTool(t) => t.call_tool(None),
@@ -604,19 +613,18 @@ impl ServerHandler for KanbanHandler {
 
 fn resolve_project(project: &Option<String>) -> Result<PathBuf, CallToolError> {
     let path = match project {
-        Some(p) => {
-            std::fs::canonicalize(p)
-                .map_err(|e| CallToolError::from_message(format!("Cannot resolve project path '{}': {}", p, e)))?
-        }
-        None => {
-            std::env::current_dir()
-                .map_err(|e| CallToolError::from_message(e.to_string()))?
-        }
+        Some(p) => std::fs::canonicalize(p).map_err(|e| {
+            CallToolError::from_message(format!("Cannot resolve project path '{}': {}", p, e))
+        })?,
+        None => std::env::current_dir().map_err(|e| CallToolError::from_message(e.to_string()))?,
     };
     Ok(path)
 }
 
-fn resolve_column(board: &crate::board::Board, column_name: &Option<String>) -> Result<String, CallToolError> {
+fn resolve_column(
+    board: &crate::board::Board,
+    column_name: &Option<String>,
+) -> Result<String, CallToolError> {
     let name = match column_name {
         Some(n) => n.as_str(),
         None => "todo",
@@ -625,23 +633,29 @@ fn resolve_column(board: &crate::board::Board, column_name: &Option<String>) -> 
         .map(|c| c.id.clone())
         .ok_or_else(|| {
             let available: Vec<_> = board.columns.iter().map(|c| c.name.as_str()).collect();
-            CallToolError::from_message(
-                format!("Unknown column '{}'. Available: {}", name, available.join(", "))
-            )
+            CallToolError::from_message(format!(
+                "Unknown column '{}'. Available: {}",
+                name,
+                available.join(", ")
+            ))
         })
 }
 
 fn resolve_priority(priority: &Option<String>) -> Result<Priority, CallToolError> {
     let p = priority.as_deref().unwrap_or("medium");
-    Priority::from_str(p)
-        .ok_or_else(|| CallToolError::from_message(
-            format!("Unknown priority '{}'. Use: backlog, low, medium, high, urgent", p)
+    Priority::from_str(p).ok_or_else(|| {
+        CallToolError::from_message(format!(
+            "Unknown priority '{}'. Use: backlog, low, medium, high, urgent",
+            p
         ))
+    })
 }
 
 fn get_column_name(store: &Store, project_path: &PathBuf, column_id: &str) -> Option<String> {
     let board = store.get_board(&project_path.to_string_lossy()).ok()?;
-    board.columns.iter()
+    board
+        .columns
+        .iter()
         .find(|c| c.id == column_id)
         .map(|c| c.name.clone())
 }

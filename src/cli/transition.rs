@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::board::store::Store;
 use crate::kanban::config::{cards_dir, db_path, is_initialized};
-use crate::markdown::writer::{card_file_path, sync_card};
+use crate::persistence::move_card_with_markdown;
 use crate::MoveArgs;
 
 /// Move a card to a different column.
@@ -12,11 +12,15 @@ pub fn transition(args: &MoveArgs) -> Result<()> {
 
     let (mut store, board, cards_dir_path) = if let Some(ref p) = project_path {
         if !is_initialized(p) {
-            anyhow::bail!("Project at {:?} is not initialized. Run `kanban init` first.", p);
+            anyhow::bail!(
+                "Project at {:?} is not initialized. Run `kanban init` first.",
+                p
+            );
         }
         let db = db_path(p);
         let store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
-        let board = store.get_board(p.to_string_lossy().as_ref())
+        let board = store
+            .get_board(p.to_string_lossy().as_ref())
             .context(format!("Failed to open board at {:?}", p))?;
         (store, board, cards_dir(p))
     } else {
@@ -26,36 +30,40 @@ pub fn transition(args: &MoveArgs) -> Result<()> {
         }
         let db = db_path(&cwd);
         let store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
-        let board = store.get_board(cwd.to_string_lossy().as_ref())
+        let board = store
+            .get_board(cwd.to_string_lossy().as_ref())
             .context(format!("Failed to open board at {:?}", cwd))?;
         (store, board, cards_dir(&cwd))
     };
 
     // Resolve target column
     let target_col_name = args.column.clone();
-    let column_id = board.columns.iter().find(|c| c.name == target_col_name)
-        .ok_or_else(|| anyhow!("Unknown column: {}. Available: {}", target_col_name,
-            board.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")))?
+    let column_id = board
+        .columns
+        .iter()
+        .find(|c| c.name == target_col_name)
+        .ok_or_else(|| {
+            anyhow!(
+                "Unknown column: {}. Available: {}",
+                target_col_name,
+                board
+                    .columns
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?
         .id
         .clone();
 
-    // Get the card to know its current file path
-    let card = store.get_card(&args.card_id)
-        .context(format!("Card not found: {}", args.card_id))?;
+    let card = move_card_with_markdown(&mut store, &args.card_id, &column_id, &cards_dir_path)
+        .context("Failed to move card and markdown export")?;
 
-    // Transition in SQLite
-    store.transition_card(&args.card_id, &column_id)
-        .context("Failed to transition card in database")?;
-
-    // Update markdown file
-    let card_path = card_file_path(&card.id, &cards_dir_path);
-    if card_path.exists() {
-        let mut updated_card = card.clone();
-        updated_card.column_id = column_id.clone();
-        sync_card(&updated_card, &cards_dir_path).context("Failed to update card markdown file")?;
-    }
-
-    let col_name = board.columns.iter().find(|c| c.id == column_id)
+    let col_name = board
+        .columns
+        .iter()
+        .find(|c| c.id == column_id)
         .map(|c| c.name.as_str())
         .unwrap_or("???");
 

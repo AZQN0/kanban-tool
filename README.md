@@ -1,11 +1,11 @@
 # Kanban — A Kanban Board for Coding Agents
 
-A Rust-based kanban board system designed for coding agents, with a CLI, a terminal UI (TUI), a WebUI, and an MCP server. Boards are stored as SQLite databases with markdown card files.
+A Rust-based kanban board system designed for coding agents, with a CLI, a terminal UI (TUI), a WebUI, and an MCP server. Boards are stored in SQLite, with markdown card files maintained as synchronized exports.
 
 ## Features
 
 - **Multi-project boards** — Initialize separate kanban boards per project
-- **Markdown-backed cards** — Each card is a human-readable markdown file with YAML frontmatter
+- **Markdown card exports** — Each card is exported as a human-readable markdown file with YAML frontmatter
 - **SQLite persistence** — Fast, portable, zero-config database
 - **Terminal UI (TUI)** — Full keyboard-driven TUI with 3-panel layout (columns / cards / detail)
 - **WebUI** — Browser-based kanban board with REST API, SSE live updates, keyboard navigation, drag-and-drop, modals, and search
@@ -28,7 +28,7 @@ A Rust-based kanban board system designed for coding agents, with a CLI, a termi
 │              kanban/ (project manager)                    │
 │   Manager │ Config │ Init                                │
 ├───────────────────────────────────────────────────────────┤
-│            markdown/ (persistence)                        │
+│            markdown/ (export writer)                      │
 │   Parser │ Writer                                        │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -117,7 +117,7 @@ kanban list --project /path/to/proj  # Another project's board
 
 ### `kanban move <CARD_ID> <COLUMN>`
 
-Move a card to a different column. Updates both the database and the markdown file.
+Move a card to a different column. Updates SQLite and refreshes the synchronized markdown export.
 
 ### `kanban search [OPTIONS] <QUERY>`
 
@@ -142,7 +142,7 @@ kanban update <CARD_ID> --title "New title" --priority urgent --label backend
 
 ### `kanban delete <CARD_ID>`
 
-Removes the card from both SQLite and the markdown file system.
+Removes the card from SQLite and removes its synchronized markdown export.
 
 ### `kanban board`
 
@@ -297,7 +297,7 @@ Start with `kanban server` (runs over stdio). Exposes 8 tools:
 
 ### Card File
 
-Each card is stored as `.kanban/cards/<id>.md`:
+SQLite is the authoritative store. Each card is also synchronized to `.kanban/cards/<id>.md` as an export for reading, inspection, and repair workflows; edit cards through the CLI, TUI, WebUI, or MCP API instead of editing markdown files as the source of truth.
 
 ```markdown
 ---

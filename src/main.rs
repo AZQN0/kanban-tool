@@ -7,6 +7,7 @@ mod cli;
 mod kanban;
 mod markdown;
 mod mcp;
+mod persistence;
 mod tui;
 mod webui;
 

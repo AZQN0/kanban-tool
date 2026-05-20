@@ -33,14 +33,14 @@ Each project has its own board stored in `.kanban/`:
 ```
 my-project/
 ├── .kanban/kanban.db          # SQLite database
-├── .kanban/cards/             # Markdown card files (one per card)
+├── .kanban/cards/             # Synchronized markdown card exports
 ├── .kanban/columns/           # Column definitions
 │
 └── default columns:
     backlog → todo → in_progress → review → done
 ```
 
-Cards are stored as both markdown files (`.kanban/cards/<uuid>.md`) and in SQLite.
+Cards are stored authoritatively in SQLite. Markdown files (`.kanban/cards/<uuid>.md`) are synchronized exports for reading, inspection, and repair workflows.
 
 ## CLI Commands
 
@@ -86,7 +86,7 @@ kanban list --project /path/to/project
 kanban move <CARD_ID> <COLUMN>
 ```
 
-Updates both the database and the markdown file.
+Updates SQLite and refreshes the synchronized markdown export.
 
 ### Get a Card
 
@@ -115,7 +115,7 @@ Update any combination of fields. All options are optional — only specify the 
 kanban delete <CARD_ID>
 ```
 
-Removes the card from both SQLite and the markdown file system.
+Removes the card from SQLite and removes its synchronized markdown export.
 
 ### Search Cards
 
@@ -255,7 +255,7 @@ Use the MCP server tools programmatically. Example:
 ## Tips
 
 - **Card IDs** are UUIDs returned by `kanban create`. Keep them handy for `move`, `get`, `update`, `delete`, and other operations.
-- **Markdown cards** are human-editable — you can edit `.kanban/cards/<id>.md` directly and the DB stays in sync on next read.
+- **Markdown cards** are synchronized exports, not the authoritative edit path. Use CLI, TUI, WebUI, or MCP writes to change cards.
 - **Multi-project** — use `--project` flag or `kanban board` (TUI) to switch between boards.
 - **Labels** — add multiple with repeated `--label` flags for categorization. Multiple labels filter as AND (card must have all specified labels).
 - **Priority ordering** — `urgent` > `high` > `medium` > `low` > `backlog`.
@@ -263,7 +263,7 @@ Use the MCP server tools programmatically. Example:
 
 ## Card File Format
 
-Each card is a markdown file with YAML frontmatter:
+Each card is synchronized to a markdown export with YAML frontmatter:
 
 ```markdown
 ---

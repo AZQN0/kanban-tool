@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::board::card::Card;
@@ -15,52 +16,78 @@ pub fn write_card(card: &Card, cards_dir: &Path) -> Result<()> {
     // Ensure the cards directory exists
     fs::create_dir_all(cards_dir)
         .context(format!("Failed to create cards directory: {:?}", cards_dir))?;
-    
+
     let file_path = cards_dir.join(format!("{}.md", card.id));
+    let tmp_path = cards_dir.join(format!("{}.md.tmp", card.id));
     let content = build_card_markdown(card);
-    
-    fs::write(&file_path, content)
-        .context(format!("Failed to write card file: {:?}", file_path))?;
-    
+
+    write_temp_then_rename(&tmp_path, &file_path, content.as_bytes()).context(format!(
+        "Failed to write card markdown export: {:?}",
+        file_path
+    ))?;
+
+    Ok(())
+}
+
+fn write_temp_then_rename(tmp_path: &Path, file_path: &Path, content: &[u8]) -> Result<()> {
+    let mut tmp_file = fs::File::create(tmp_path).context(format!(
+        "Failed to create card markdown temp file: {:?}",
+        tmp_path
+    ))?;
+    tmp_file.write_all(content).context(format!(
+        "Failed to write card markdown temp file: {:?}",
+        tmp_path
+    ))?;
+    tmp_file.flush().context(format!(
+        "Failed to flush card markdown temp file: {:?}",
+        tmp_path
+    ))?;
+    drop(tmp_file);
+
+    fs::rename(tmp_path, file_path).context(format!(
+        "Failed to replace card markdown export: {:?}",
+        file_path
+    ))?;
+
     Ok(())
 }
 
 /// Build markdown content string from a Card.
 fn build_card_markdown(card: &Card) -> String {
     let mut content = String::from("---\n");
-    
+
     // Write frontmatter fields
     content.push_str(&format!("id: {}\n", card.id));
     content.push_str(&format!("board_id: {}\n", card.board_id));
     content.push_str(&format!("column_id: {}\n", card.column_id));
     content.push_str(&format!("title: {}\n", card.title));
     content.push_str(&format!("priority: {}\n", card.priority));
-    
+
     // Labels as JSON array
     let labels_json = serde_json::to_string(&card.labels).unwrap_or_default();
     content.push_str(&format!("labels: {}\n", labels_json));
-    
+
     // Subtasks as JSON array
     let subtasks_json = serde_json::to_string(&card.subtasks).unwrap_or_default();
     content.push_str(&format!("subtasks: {}\n", subtasks_json));
-    
+
     // Parent card ID
     if let Some(ref parent_id) = card.parent_card_id {
         content.push_str(&format!("parent_card_id: {}\n", parent_id));
     } else {
         content.push_str("parent_card_id: null\n");
     }
-    
+
     // Timestamps
     content.push_str(&format!("created_at: {}\n", card.created_at.to_rfc3339()));
     content.push_str(&format!("updated_at: {}\n", card.updated_at.to_rfc3339()));
-    
+
     content.push_str("---\n");
     content.push('\n');
-    
+
     // Description body
     content.push_str(&card.description);
-    
+
     content
 }
 
@@ -68,18 +95,20 @@ fn build_card_markdown(card: &Card) -> String {
 ///
 /// File naming: `<column_id>.md` in the columns subdirectory.
 pub fn write_column(column: &Column, columns_dir: &Path) -> Result<()> {
-    fs::create_dir_all(columns_dir)
-        .context(format!("Failed to create columns directory: {:?}", columns_dir))?;
-    
+    fs::create_dir_all(columns_dir).context(format!(
+        "Failed to create columns directory: {:?}",
+        columns_dir
+    ))?;
+
     let file_path = columns_dir.join(format!("{}.md", column.id));
     let content = format!(
         "id: {}\nboard_id: {}\nname: {}\nsort_order: {}\n",
         column.id, column.board_id, column.name, column.sort_order
     );
-    
+
     fs::write(&file_path, content)
         .context(format!("Failed to write column file: {:?}", file_path))?;
-    
+
     Ok(())
 }
 
@@ -148,20 +177,46 @@ mod tests {
         let dir = std::env::temp_dir().join("kanban_test_write");
         let cards_dir = dir.join("cards");
         let _ = fs::remove_dir_all(&dir);
-        
+
         let card = test_card();
         write_card(&card, &cards_dir).unwrap();
-        
+
         let file_path = cards_dir.join("test-card.md");
         assert!(file_path.exists());
-        
+
         let content = fs::read_to_string(&file_path).unwrap();
         assert!(content.contains("id: test-card"));
         assert!(content.contains("title: Test Card"));
         assert!(content.contains("priority: high"));
         assert!(content.contains("Test description"));
-        
+
         // Cleanup
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_card_uses_tmp_file_before_replacing_export() {
+        let dir =
+            std::env::temp_dir().join(format!("kanban_test_atomic_write_{}", uuid::Uuid::new_v4()));
+        let cards_dir = dir.join("cards");
+        fs::create_dir_all(&cards_dir).unwrap();
+
+        let card = test_card();
+        let file_path = cards_dir.join("test-card.md");
+        let tmp_path = cards_dir.join("test-card.md.tmp");
+        fs::write(&file_path, "existing export").unwrap();
+        fs::create_dir_all(&tmp_path).unwrap();
+
+        let err = write_card(&card, &cards_dir).unwrap_err();
+
+        let messages = err
+            .chain()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(messages.contains("card markdown temp file"));
+        assert_eq!(fs::read_to_string(&file_path).unwrap(), "existing export");
+
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -169,7 +224,7 @@ mod tests {
     fn test_build_card_markdown() {
         let card = test_card();
         let markdown = build_card_markdown(&card);
-        
+
         assert!(markdown.starts_with("---\n"));
         assert!(markdown.contains("id: test-card\n"));
         assert!(markdown.contains("title: Test Card\n"));
@@ -182,15 +237,15 @@ mod tests {
         let dir = std::env::temp_dir().join("kanban_test_remove");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        
+
         // Create a dummy file
         let file_path = dir.join("test-123.md");
         fs::write(&file_path, "content").unwrap();
-        
+
         // Remove it
         remove_card_file("test-123", &dir).unwrap();
         assert!(!file_path.exists());
-        
+
         // Cleanup
         let _ = fs::remove_dir_all(&dir);
     }
