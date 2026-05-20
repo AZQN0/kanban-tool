@@ -100,7 +100,14 @@ enum Commands {
     /// Launch the terminal UI
     Board,
     /// Start the WebUI in the browser
-    WebUI,
+    WebUI {
+        /// Bind address (default: 127.0.0.1)
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+        /// Port to listen on (default: 9876)
+        #[arg(long, default_value_t = 9876)]
+        port: u16,
+    },
     /// Start the MCP server for coding agents
     Server,
 }
@@ -150,11 +157,11 @@ fn main() -> Result<()> {
                 .context("Cannot resolve current directory")?;
             tui::app::run(project_path)?;
         }
-        Commands::WebUI => {
+        Commands::WebUI { bind, port } => {
             let project_path = std::fs::canonicalize(".")
                 .context("Cannot resolve current directory")?;
             #[cfg(feature = "webui")]
-            webui::server::run(project_path)?;
+            webui::server::run(project_path, &bind, port)?;
             #[cfg(not(feature = "webui"))]
             eprintln!("WebUI feature not enabled. Build with --features webui");
         }

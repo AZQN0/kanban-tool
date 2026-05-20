@@ -9,8 +9,13 @@ use tower_http::trace::TraceLayer;
 use super::api::AppState;
 use super::sse;
 
-/// Start the WebUI HTTP server on localhost:9876.
-pub fn run(project_path: PathBuf) -> Result<()> {
+/// Start the WebUI HTTP server.
+///
+/// # Arguments
+/// * `project_path` - Path to the project directory
+/// * `bind` - Bind address (e.g. "127.0.0.1" or "0.0.0.0")
+/// * `port` - Port to listen on
+pub fn run(project_path: PathBuf, bind: &str, port: u16) -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -26,11 +31,13 @@ pub fn run(project_path: PathBuf) -> Result<()> {
         
         let app = build_app(app_state.clone()).await;
         
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:9876")
+        let bind_addr = format!("{}:{}", bind, port);
+        let listener = tokio::net::TcpListener::bind(&bind_addr)
             .await
-            .context("Failed to bind to 127.0.0.1:9876")?;
+            .context(format!("Failed to bind to {}", bind_addr))?;
         
-        println!("WebUI running at http://localhost:9876");
+        let display_url = format!("http://{}:{}", bind, port);
+        println!("WebUI running at {}", display_url);
         
         axum::serve(listener, app)
             .await
