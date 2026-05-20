@@ -188,3 +188,18 @@ fn cli_project_flag_keeps_boards_isolated() {
         "{second_search}"
     );
 }
+
+#[test]
+fn cli_accepts_documented_web_ui_command_spelling() {
+    let help = assert_success(run(&["web-ui", "--help"], None));
+
+    assert!(help.contains("Start the WebUI"), "{help}");
+    assert!(help.contains("--allow-remote"), "{help}");
+
+    let misspelled = assert_failure(run(&["webui", "--help"], None));
+    assert!(
+        misspelled.contains("unrecognized subcommand"),
+        "{misspelled}"
+    );
+    assert!(misspelled.contains("web-ui"), "{misspelled}");
+}

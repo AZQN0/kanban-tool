@@ -737,13 +737,17 @@ mod tests {
     }
 
     fn create_card(project: &Path, title: &str) -> String {
+        create_card_with_labels(project, title, None)
+    }
+
+    fn create_card_with_labels(project: &Path, title: &str, labels: Option<Vec<String>>) -> String {
         let result = CreateCardTool {
             project: project.to_string_lossy().into_owned(),
             title: title.to_string(),
             description: None,
             column: None,
             priority: None,
-            labels: None,
+            labels,
         }
         .call_tool(None)
         .unwrap();
@@ -782,6 +786,35 @@ mod tests {
         assert_eq!(body["card_id"], card_id);
         assert_eq!(body["title"], "New title");
         assert_eq!(get_card(&project.path, &card_id).title, "New title");
+    }
+
+    #[test]
+    fn update_card_without_labels_preserves_existing_labels() {
+        let project = TestProject::new();
+        let card_id = create_card_with_labels(
+            &project.path,
+            "Labeled title",
+            Some(vec!["backend".to_string(), "security".to_string()]),
+        );
+
+        UpdateCardTool {
+            card_id: card_id.clone(),
+            project: Some(project.project_arg()),
+            title: Some("Renamed labeled title".to_string()),
+            description: None,
+            column: None,
+            priority: None,
+            labels: None,
+        }
+        .call_tool(None)
+        .unwrap();
+
+        let stored = get_card(&project.path, &card_id);
+        assert_eq!(stored.title, "Renamed labeled title");
+        assert_eq!(
+            stored.labels,
+            vec!["backend".to_string(), "security".to_string()]
+        );
     }
 
     #[test]

@@ -180,12 +180,7 @@ fn webui_static_routes_block_traversal_and_report_missing_files() {
 
     let traversal =
         http_request(server.port, "GET", "/static/%2e%2e/%2e%2e/Cargo.toml", None).unwrap();
-    assert!(
-        traversal.status == 403 || traversal.status == 404,
-        "expected traversal to be blocked, got {} with body {}",
-        traversal.status,
-        traversal.body
-    );
+    assert_eq!(traversal.status, 403, "{}", traversal.body);
     assert!(!traversal.body.contains("[package]"));
 
     let missing = http_request(server.port, "GET", "/static/no-such-file.js", None).unwrap();

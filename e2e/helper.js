@@ -81,9 +81,10 @@ async function waitForServer(port) {
 /**
  * Start the webui server serving from a specific project directory.
  */
-function startServer(projectDir, port) {
+function startServer(projectDir, port, opts = {}) {
   return new Promise((resolve, reject) => {
-    serverProcess = spawn(BIN, ["web-ui", "--bind", "127.0.0.1", "--port", String(port)], {
+    const kanbanBin = opts.bin || BIN;
+    serverProcess = spawn(kanbanBin, ["web-ui", "--bind", "127.0.0.1", "--port", String(port)], {
       cwd: projectDir,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
@@ -165,7 +166,7 @@ async function withKanbanProject(opts) {
     ], { bin: kanbanBin });
 
     // Start server serving from the project directory
-    server = await startServer(tmpDir, port);
+    server = await startServer(tmpDir, port, { bin: kanbanBin });
     await waitForServer(port);
 
     await opts.fn(tmpDir, port);
