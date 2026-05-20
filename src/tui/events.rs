@@ -132,10 +132,10 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
 
         // Navigate columns
         KeyCode::Up | KeyCode::Char('k') if app.focus == Focus::Columns => {
-            app.column_next(true);
+            app.column_next(false);
         }
         KeyCode::Down | KeyCode::Char('j') if app.focus == Focus::Columns => {
-            app.column_next(false);
+            app.column_next(true);
         }
 
         // Navigate cards
@@ -237,6 +237,48 @@ mod tests {
             message: None,
             message_time: std::time::Instant::now(),
         }
+    }
+
+    fn test_app_with_columns() -> App {
+        let mut app = test_app_with_card();
+        app.focus = Focus::Columns;
+        app.columns = vec![
+            ColumnView {
+                name: "backlog".to_string(),
+                cards: vec![],
+            },
+            ColumnView {
+                name: "todo".to_string(),
+                cards: vec![],
+            },
+            ColumnView {
+                name: "done".to_string(),
+                cards: vec![],
+            },
+        ];
+        app.current_column_idx = 1;
+        app.card_selection = 0;
+        app.detail_card = None;
+        app
+    }
+
+    #[test]
+    fn column_arrow_keys_match_vertical_direction() {
+        let mut app = test_app_with_columns();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        assert_eq!(app.current_column_idx, 0);
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+        assert_eq!(app.current_column_idx, 1);
     }
 
     #[test]
