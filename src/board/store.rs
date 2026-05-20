@@ -255,6 +255,13 @@ impl Store {
             values.push(Box::new(d.to_string()));
         }
         if let Some(c) = column_id {
+            if self.conn.query_row(
+                "SELECT 1 FROM columns WHERE id = ?1",
+                params![c],
+                |_| Ok(()),
+            ).optional().context("Failed to validate target column")?.is_none() {
+                return Err(StoreError::BadInput(format!("Column not found: {}", c)).into());
+            }
             updates.push("column_id = ?".to_string());
             values.push(Box::new(c.to_string()));
         }
@@ -415,10 +422,13 @@ impl Store {
 
     pub fn update_subtasks(&mut self, card_id: &str, subtask_ids: &[String]) -> Result<()> {
         let subtasks_json = serde_json::to_string(subtask_ids).unwrap_or_default();
-        self.conn.execute(
+        let affected = self.conn.execute(
             "UPDATE cards SET subtasks = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![&subtasks_json, card_id],
         ).context("Failed to update subtasks")?;
+        if affected == 0 {
+            return Err(StoreError::not_found("Card", card_id).into());
+        }
         Ok(())
     }
 
@@ -475,6 +485,7 @@ mod tests {
 
         let err = store.delete_card("not-a-card").unwrap_err();
 
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::NotFound { resource: "Card", id }) if id == "not-a-card"));
         assert!(err.to_string().contains("not-a-card"));
     }
 
@@ -486,7 +497,21 @@ mod tests {
             .update_card("not-a-card", Some("New title"), None, None, None, None)
             .unwrap_err();
 
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::NotFound { resource: "Card", id }) if id == "not-a-card"));
         assert!(err.to_string().contains("not-a-card"));
+    }
+
+    #[test]
+    fn update_card_returns_bad_input_for_unknown_column() {
+        let mut store = test_store();
+        let card = test_card("card-1");
+        store.create_card(&card).unwrap();
+
+        let err = store
+            .update_card("card-1", None, None, Some("missing-column"), None, None)
+            .unwrap_err();
+
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::BadInput(_))));
     }
 
     #[test]
@@ -495,6 +520,7 @@ mod tests {
 
         let err = store.transition_card("not-a-card", "done").unwrap_err();
 
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::NotFound { resource: "Card", id }) if id == "not-a-card"));
         assert!(err.to_string().contains("not-a-card"));
     }
 
@@ -507,6 +533,17 @@ mod tests {
         let err = store.transition_card("card-1", "missing-column").unwrap_err();
 
         assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::BadInput(_))));
+    }
+
+    #[test]
+    fn update_subtasks_returns_error_when_no_row_is_updated() {
+        let mut store = test_store();
+
+        let err = store
+            .update_subtasks("not-a-card", &["subtask-1".to_string()])
+            .unwrap_err();
+
+        assert!(matches!(err.downcast_ref::<StoreError>(), Some(StoreError::NotFound { resource: "Card", id }) if id == "not-a-card"));
     }
 
     #[test]

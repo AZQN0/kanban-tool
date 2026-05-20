@@ -296,7 +296,7 @@ pub async fn update_card(
         body.description.as_deref(),
         new_col_id,
         new_priority_str.as_deref(),
-        body.labels.as_ref().map(|l| l.as_slice()),
+        body.labels.as_deref(),
     ).map_err(|e| store_error(e, "Failed to update card"))?;
     
     // Write updated markdown file
@@ -326,7 +326,7 @@ pub async fn delete_card(
     
     // Remove markdown file
     crate::markdown::writer::remove_card_file(&card_id, &config::cards_dir(&app.project_path))
-        .ok();
+        .map_err(|e| ApiError::internal(format!("Failed to remove markdown: {}", e)))?;
     
     // Broadcast SSE
     app.broadcaster.send(ServerSentEvent::card_deleted(&card_id)).ok();

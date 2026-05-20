@@ -1,6 +1,8 @@
 // @ts-check
 const { test, expect } = require("@playwright/test");
+const fs = require("fs");
 const net = require("net");
+const path = require("path");
 const { withKanbanProject } = require("./helper");
 
 async function freePort() {
@@ -92,6 +94,36 @@ test.describe("Kanban WebUI API errors", () => {
 
         const deletedAgain = await request.delete(`${baseUrl}/api/cards/${createdBody.id}`);
         expect(deletedAgain.status()).toBe(404);
+      },
+    });
+  });
+
+  test("returns internal error when markdown deletion fails", async ({ request }) => {
+    const port = await freePort();
+
+    await withKanbanProject({
+      port,
+      fn: async (tmpDir, serverPort) => {
+        const baseUrl = `http://127.0.0.1:${serverPort}`;
+        await waitForServer(request, serverPort);
+
+        const created = await request.post(`${baseUrl}/api/cards`, {
+          data: {
+            title: "Delete with bad markdown path",
+            column: "todo",
+          },
+        });
+        expect(created.status()).toBe(200);
+        const createdBody = await created.json();
+
+        const cardPath = path.join(tmpDir, ".kanban", "cards", `${createdBody.id}.md`);
+        fs.unlinkSync(cardPath);
+        fs.mkdirSync(cardPath);
+
+        const deleted = await request.delete(`${baseUrl}/api/cards/${createdBody.id}`);
+
+        expect(deleted.status()).toBe(500);
+        expect((await deleted.json()).error).toEqual(expect.any(String));
       },
     });
   });
