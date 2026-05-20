@@ -4,6 +4,7 @@ use rust_mcp_sdk::{
     schema::{schema_utils::CallToolError, CallToolResult, TextContent},
     tool_box,
 };
+use serde::Serialize;
 
 use crate::board::card::Card;
 use crate::board::card::Priority;
@@ -17,6 +18,37 @@ use crate::persistence::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+#[derive(Serialize)]
+struct CardSummaryResponse {
+    card_id: String,
+    title: String,
+    column: String,
+}
+
+#[derive(Serialize)]
+struct CardListItemResponse {
+    id: String,
+    title: String,
+    column: String,
+    priority: String,
+}
+
+#[derive(Serialize)]
+struct CardSearchItemResponse {
+    id: String,
+    title: String,
+    column: String,
+    priority: String,
+    description: String,
+}
+
+#[derive(Serialize)]
+struct BoardInitResponse {
+    board_id: String,
+    name: String,
+    columns: Vec<String>,
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool parameter structs
@@ -81,12 +113,11 @@ impl CreateCardTool {
         let col_name =
             get_column_name(&store, &project_path, &column_id).unwrap_or_else(|| "?".to_string());
 
-        Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!(
-                r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
-                card_id, self.title, col_name
-            ),
-        )]))
+        json_text_content(&CardSummaryResponse {
+            card_id,
+            title: self.title.clone(),
+            column: col_name,
+        })
     }
 }
 
@@ -130,6 +161,8 @@ impl GetCardTool {
 pub struct UpdateCardTool {
     pub card_id: String,
     #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
@@ -143,7 +176,7 @@ pub struct UpdateCardTool {
 
 impl UpdateCardTool {
     fn call_tool(&self, _auth: Option<AuthInfo>) -> Result<CallToolResult, CallToolError> {
-        let project_path = resolve_project(&None)?;
+        let project_path = resolve_project(&self.project)?;
         if !is_initialized(&project_path) {
             return Err(CallToolError::from_message(format!(
                 "Project at {:?} is not initialized.",
@@ -152,9 +185,6 @@ impl UpdateCardTool {
         }
         let db = db_path(&project_path);
         let mut store = Store::open(&db).map_err(|e| CallToolError::from_message(e.to_string()))?;
-        let card = store
-            .get_card(&self.card_id)
-            .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
         let mut new_column_id: Option<String> = None;
 
@@ -167,10 +197,10 @@ impl UpdateCardTool {
             new_column_id = Some(col);
         }
 
-        let new_priority = self
-            .priority
-            .as_ref()
-            .map(|p| resolve_priority(&Some(p.clone())).unwrap_or(card.priority.clone()));
+        let new_priority = match &self.priority {
+            Some(priority) => Some(resolve_priority(&Some(priority.clone()))?),
+            None => None,
+        };
 
         let updated = update_card_with_markdown(
             &mut store,
@@ -189,12 +219,11 @@ impl UpdateCardTool {
         let col_name = get_column_name(&store, &project_path, &updated.column_id)
             .unwrap_or_else(|| "?".to_string());
 
-        Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!(
-                r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
-                updated.id, updated.title, col_name
-            ),
-        )]))
+        json_text_content(&CardSummaryResponse {
+            card_id: updated.id,
+            title: updated.title,
+            column: col_name,
+        })
     }
 }
 
@@ -205,11 +234,13 @@ impl UpdateCardTool {
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct DeleteCardTool {
     pub card_id: String,
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 impl DeleteCardTool {
     fn call_tool(&self, _auth: Option<AuthInfo>) -> Result<CallToolResult, CallToolError> {
-        let project_path = resolve_project(&None)?;
+        let project_path = resolve_project(&self.project)?;
         if !is_initialized(&project_path) {
             return Err(CallToolError::from_message(format!(
                 "Project at {:?} is not initialized.",
@@ -263,6 +294,10 @@ impl ListCardsTool {
             .get_board(&project_path.to_string_lossy())
             .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
+        if let Some(priority) = &self.priority {
+            resolve_priority(&Some(priority.clone()))?;
+        }
+
         let column_id = self
             .column
             .as_ref()
@@ -294,20 +329,20 @@ impl ListCardsTool {
             .map(|c| (c.id.as_str(), c.name.as_str()))
             .collect();
 
-        let summaries: Vec<String> = cards
+        let summaries: Vec<CardListItemResponse> = cards
             .iter()
             .map(|c| {
                 let col = col_names.get(c.column_id.as_str()).map_or("?", |s| *s);
-                format!(
-                    r#"{{"id": "{}", "title": "{}", "column": "{}", "priority": "{}"}}"#,
-                    c.id, c.title, col, c.priority
-                )
+                CardListItemResponse {
+                    id: c.id.clone(),
+                    title: c.title.clone(),
+                    column: col.to_string(),
+                    priority: c.priority.to_string(),
+                }
             })
             .collect();
 
-        Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!("[{}]", summaries.join(", ")),
-        )]))
+        json_text_content(&summaries)
     }
 }
 
@@ -318,12 +353,14 @@ impl ListCardsTool {
 #[derive(Debug, serde::Deserialize, serde::Serialize, JsonSchema)]
 pub struct TransitionCardTool {
     pub card_id: String,
+    #[serde(default)]
+    pub project: Option<String>,
     pub column: String,
 }
 
 impl TransitionCardTool {
     fn call_tool(&self, _auth: Option<AuthInfo>) -> Result<CallToolResult, CallToolError> {
-        let project_path = resolve_project(&None)?;
+        let project_path = resolve_project(&self.project)?;
         if !is_initialized(&project_path) {
             return Err(CallToolError::from_message(format!(
                 "Project at {:?} is not initialized.",
@@ -347,12 +384,11 @@ impl TransitionCardTool {
         )
         .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
-        Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!(
-                r#"{{"card_id": "{}", "title": "{}", "column": "{}"}}"#,
-                self.card_id, updated.title, self.column
-            ),
-        )]))
+        json_text_content(&CardSummaryResponse {
+            card_id: self.card_id.clone(),
+            title: updated.title,
+            column: self.column.clone(),
+        })
     }
 }
 
@@ -392,17 +428,21 @@ impl SearchCardsTool {
             .map(|c| (c.id.as_str(), c.name.as_str()))
             .collect();
 
-        let summaries: Vec<String> = cards.iter().map(|c| {
-            let col = col_names.get(c.column_id.as_str()).map_or("?", |s| *s);
-            format!(
-                r#"{{"id": "{}", "title": "{}", "column": "{}", "priority": "{}", "description": "{}"}}"#,
-                c.id, c.title, col, c.priority, c.description
-            )
-        }).collect();
+        let summaries: Vec<CardSearchItemResponse> = cards
+            .iter()
+            .map(|c| {
+                let col = col_names.get(c.column_id.as_str()).map_or("?", |s| *s);
+                CardSearchItemResponse {
+                    id: c.id.clone(),
+                    title: c.title.clone(),
+                    column: col.to_string(),
+                    priority: c.priority.to_string(),
+                    description: c.description.clone(),
+                }
+            })
+            .collect();
 
-        Ok(CallToolResult::text_content(vec![TextContent::from(
-            format!("[{}]", summaries.join(", ")),
-        )]))
+        json_text_content(&summaries)
     }
 }
 
@@ -425,19 +465,11 @@ impl ManageBoardTool {
             "init" => {
                 let project_path = resolve_project(&self.project)?;
                 match init_board(&project_path) {
-                    Ok(board) => Ok(CallToolResult::text_content(vec![TextContent::from(
-                        format!(
-                            r#"{{"board_id": "{}", "name": "{}", "columns": [{}]}}"#,
-                            board.id,
-                            board.name,
-                            board
-                                .columns
-                                .iter()
-                                .map(|c| format!("\"{}\"", c.name))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                    )])),
+                    Ok(board) => json_text_content(&BoardInitResponse {
+                        board_id: board.id,
+                        name: board.name,
+                        columns: board.columns.into_iter().map(|c| c.name).collect(),
+                    }),
                     Err(e) => Err(CallToolError::from_message(e.to_string())),
                 }
             }
@@ -622,6 +654,13 @@ fn resolve_project(project: &Option<String>) -> Result<PathBuf, CallToolError> {
     Ok(path)
 }
 
+fn json_text_content<T: Serialize>(value: &T) -> Result<CallToolResult, CallToolError> {
+    let json = serde_json::to_string(value).map_err(|e| {
+        CallToolError::from_message(format!("Failed to serialize MCP response: {}", e))
+    })?;
+    Ok(CallToolResult::text_content(vec![TextContent::from(json)]))
+}
+
 fn resolve_column(
     board: &crate::board::Board,
     column_name: &Option<String>,
@@ -659,4 +698,179 @@ fn get_column_name(store: &Store, project_path: &PathBuf, column_id: &str) -> Op
         .iter()
         .find(|c| c.id == column_id)
         .map(|c| c.name.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_mcp_sdk::schema::ContentBlock;
+    use serde_json::Value;
+    use std::fs;
+    use std::path::Path;
+
+    struct TestProject {
+        path: PathBuf,
+    }
+
+    impl TestProject {
+        fn new() -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("kanban_mcp_schema_test_{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&path).unwrap();
+            init_board(&path).unwrap();
+            Self { path }
+        }
+
+        fn project_arg(&self) -> String {
+            self.path.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for TestProject {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn text(result: CallToolResult) -> String {
+        match result.content.into_iter().next().unwrap() {
+            ContentBlock::TextContent(content) => content.text,
+            other => panic!("expected text content, got {other:?}"),
+        }
+    }
+
+    fn create_card(project: &Path, title: &str) -> String {
+        let result = CreateCardTool {
+            project: project.to_string_lossy().into_owned(),
+            title: title.to_string(),
+            description: None,
+            column: None,
+            priority: None,
+            labels: None,
+        }
+        .call_tool(None)
+        .unwrap();
+
+        serde_json::from_str::<Value>(&text(result)).unwrap()["card_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    fn get_card(project: &Path, card_id: &str) -> Card {
+        Store::open(&db_path(project))
+            .unwrap()
+            .get_card(card_id)
+            .unwrap()
+    }
+
+    #[test]
+    fn update_card_without_labels_updates_title() {
+        let project = TestProject::new();
+        let card_id = create_card(&project.path, "Old title");
+
+        let result = UpdateCardTool {
+            card_id: card_id.clone(),
+            project: Some(project.project_arg()),
+            title: Some("New title".to_string()),
+            description: None,
+            column: None,
+            priority: None,
+            labels: None,
+        }
+        .call_tool(None)
+        .unwrap();
+
+        let body: Value = serde_json::from_str(&text(result)).unwrap();
+        assert_eq!(body["card_id"], card_id);
+        assert_eq!(body["title"], "New title");
+        assert_eq!(get_card(&project.path, &card_id).title, "New title");
+    }
+
+    #[test]
+    fn card_titles_with_quotes_and_newlines_produce_valid_json() {
+        let project = TestProject::new();
+        let title = "Needs \"escaping\"\nand newlines";
+
+        let result = CreateCardTool {
+            project: project.project_arg(),
+            title: title.to_string(),
+            description: None,
+            column: None,
+            priority: None,
+            labels: None,
+        }
+        .call_tool(None)
+        .unwrap();
+
+        let body: Value = serde_json::from_str(&text(result)).unwrap();
+        assert_eq!(body["title"], title);
+    }
+
+    #[test]
+    fn delete_card_with_project_deletes_from_requested_project() {
+        let project_a = TestProject::new();
+        let project_b = TestProject::new();
+        let keep_id = create_card(&project_a.path, "Keep");
+        let delete_id = create_card(&project_b.path, "Delete");
+
+        DeleteCardTool {
+            card_id: delete_id.clone(),
+            project: Some(project_b.project_arg()),
+        }
+        .call_tool(None)
+        .unwrap();
+
+        assert!(Store::open(&db_path(&project_b.path))
+            .unwrap()
+            .get_card(&delete_id)
+            .is_err());
+        assert_eq!(get_card(&project_a.path, &keep_id).title, "Keep");
+    }
+
+    #[test]
+    fn unknown_column_returns_available_columns() {
+        let project = TestProject::new();
+        let card_id = create_card(&project.path, "Move me");
+
+        let err = TransitionCardTool {
+            card_id,
+            project: Some(project.project_arg()),
+            column: "missing".to_string(),
+        }
+        .call_tool(None)
+        .unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("Unknown column 'missing'"), "{message}");
+        assert!(
+            message.contains("Available: backlog, todo, in_progress, review, done"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn update_card_rejects_invalid_priority() {
+        let project = TestProject::new();
+        let card_id = create_card(&project.path, "Priority");
+
+        let err = UpdateCardTool {
+            card_id,
+            project: Some(project.project_arg()),
+            title: None,
+            description: None,
+            column: None,
+            priority: Some("not-a-priority".to_string()),
+            labels: None,
+        }
+        .call_tool(None)
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("Unknown priority 'not-a-priority'"),
+            "{}",
+            err
+        );
+    }
 }

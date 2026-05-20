@@ -275,13 +275,15 @@ Start with `kanban server` (runs over stdio). Exposes 8 tools:
 | Tool | Required Args | Description |
 |------|---------------|-------------|
 | `create_card` | `project`, `title` | Create a new card |
-| `get_card` | `card_id` | Get full card data |
-| `update_card` | `card_id` | Update card fields |
-| `delete_card` | `card_id` | Delete a card |
-| `list_cards` | — | List cards (all optional filters) |
-| `transition_card` | `card_id`, `column` | Move card to column |
-| `search_cards` | `query` | Search title/description |
-| `manage_board` | `action` | Init board, add/remove columns |
+| `get_card` | `card_id` (+ optional `project`) | Get full card data |
+| `update_card` | `card_id` (+ optional `project` and fields) | Update card fields |
+| `delete_card` | `card_id` (+ optional `project`) | Delete a card |
+| `list_cards` | optional filters, including `project` | List cards |
+| `transition_card` | `card_id`, `column` (+ optional `project`) | Move card to column |
+| `search_cards` | `query` (+ optional `project`) | Search title/description |
+| `manage_board` | `action` (+ optional `project`) | Init board, add/remove columns |
+
+For MCP tools where `project` is optional, omitting it uses the MCP server's current working directory. Pass `project` to target a different initialized board, especially for mutating tools such as `update_card`, `delete_card`, and `transition_card`.
 
 ### Example: Create via MCP
 

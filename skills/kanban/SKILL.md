@@ -160,12 +160,14 @@ Start with `kanban server` (runs over stdio). Available tools:
 |------|------|-------------|
 | `create_card` | `project`, `title` (+ optional `description`, `priority`, `column`, `labels`) | Create a new card |
 | `get_card` | `card_id` (+ optional `project`) | Get full card data |
-| `update_card` | `card_id` (+ optional fields) | Update card fields |
-| `delete_card` | `card_id` | Delete a card |
-| `list_cards` | optional filters | List cards |
-| `transition_card` | `card_id`, `column` | Move card to column |
+| `update_card` | `card_id` (+ optional `project` and fields) | Update card fields |
+| `delete_card` | `card_id` (+ optional `project`) | Delete a card |
+| `list_cards` | optional filters, including `project` | List cards |
+| `transition_card` | `card_id`, `column` (+ optional `project`) | Move card to column |
 | `search_cards` | `query` (+ optional `project`) | Search cards |
 | `manage_board` | `action` (+ optional fields) | Init board, add/remove columns |
+
+For MCP tools where `project` is optional, omitting it uses the MCP server's current working directory. Pass `project` when operating on another initialized board, especially for `update_card`, `delete_card`, and `transition_card`.
 
 ## Common Workflows
 
