@@ -239,4 +239,14 @@ mod tests {
             Some("Editor opened. Press any key to continue...")
         );
     }
+
+    #[test]
+    fn readme_markdown_export_docs_do_not_advertise_tui_editing() {
+        let readme = include_str!("../../README.md");
+
+        assert!(
+            !readme.contains("edit cards through the CLI, TUI"),
+            "README still advertises TUI editing of authoritative card data"
+        );
+    }
 }

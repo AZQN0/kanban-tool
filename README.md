@@ -298,7 +298,7 @@ For MCP tools where `project` is optional, omitting it uses the MCP server's cur
 
 ### Card File
 
-SQLite is the authoritative store. Each card is also synchronized to `.kanban/cards/<id>.md` as an export for reading, inspection, and repair workflows; edit cards through the CLI, TUI, WebUI, or MCP API instead of editing markdown files as the source of truth.
+SQLite is the authoritative store. Each card is also synchronized to `.kanban/cards/<id>.md` as an export for reading, inspection, and repair workflows; edit cards through the CLI, WebUI, or MCP API instead of editing markdown files as the source of truth.
 
 ```markdown
 ---
