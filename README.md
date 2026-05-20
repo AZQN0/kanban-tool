@@ -361,6 +361,9 @@ Requires Playwright and a Chromium browser:
 npm ci
 npx playwright install chromium
 
+# Build the release WebUI binary used by e2e/run.sh
+cargo build --release --features webui
+
 # Run all E2E tests
 bash e2e/run.sh
 # or
