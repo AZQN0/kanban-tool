@@ -527,10 +527,7 @@ impl ManageBoardTool {
                     CallToolError::from_message("column_name is required for remove_column")
                 })?;
 
-                let col = Column::find_by_name(&board.columns, col_name).ok_or_else(|| {
-                    CallToolError::from_message(format!("Unknown column '{}'", col_name))
-                })?;
-                let col_id = &col.id;
+                let col_id = resolve_column(&board, &Some(col_name.to_string()))?;
 
                 let cards = store
                     .list_cards(&board.id, Some(col_id.as_str()), None, None, "created")
@@ -545,7 +542,7 @@ impl ManageBoardTool {
 
                 store
                     .conn
-                    .execute("DELETE FROM columns WHERE id = ?", [col_id])
+                    .execute("DELETE FROM columns WHERE id = ?", [&col_id])
                     .map_err(|e| CallToolError::from_message(e.to_string()))?;
 
                 Ok(CallToolResult::text_content(vec![TextContent::from(
@@ -861,6 +858,26 @@ mod tests {
             labels: None,
             limit: None,
             offset: None,
+        }
+        .call_tool(None)
+        .unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("Unknown column 'missing'"), "{message}");
+        assert!(
+            message.contains("Available: backlog, todo, in_progress, review, done"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn remove_column_unknown_column_returns_available_columns() {
+        let project = TestProject::new();
+
+        let err = ManageBoardTool {
+            action: "remove_column".to_string(),
+            project: Some(project.project_arg()),
+            column_name: Some("missing".to_string()),
         }
         .call_tool(None)
         .unwrap_err();
