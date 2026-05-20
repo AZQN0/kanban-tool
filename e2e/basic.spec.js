@@ -3,6 +3,61 @@ const { test, expect } = require("@playwright/test");
 const { withKanbanProject } = require("./helper");
 
 test.describe("Kanban WebUI E2E Tests", () => {
+  test("does not advertise project switching in the single-project WebUI", async ({ page }) => {
+    await withKanbanProject({
+      fn: async (tmpDir, port) => {
+        await page.goto(`http://127.0.0.1:${port}/`);
+
+        await expect(page.locator("#project-modal")).toHaveCount(0);
+        const bottomText = await page.locator("#bottom-bar").textContent();
+        expect(bottomText).not.toContain("Project");
+
+        await page.keyboard.press("Shift+P");
+        await expect(page.locator("#project-modal")).toHaveCount(0);
+      },
+    });
+  });
+
+  test("updates a second page when a card moves in another page", async ({ browser }) => {
+    await withKanbanProject({
+      fn: async (tmpDir, port) => {
+        const pageA = await browser.newPage();
+        const pageB = await browser.newPage();
+        try {
+          await pageA.goto(`http://127.0.0.1:${port}/`);
+          await pageB.goto(`http://127.0.0.1:${port}/`);
+
+          await expect(pageB.locator("#cards-list")).toContainText("Test Card 1", { timeout: 10000 });
+
+          const cardId = await pageA.evaluate(async () => {
+            const response = await fetch("/api/cards");
+            const board = await response.json();
+            return board.columns
+              .flatMap((column) => column.cards)
+              .find((card) => card.title === "Test Card 1").id;
+          });
+
+          await pageA.evaluate(async (id) => {
+            const response = await fetch(`/api/cards/${id}/move`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ column: "done" }),
+            });
+            if (!response.ok) {
+              throw new Error(await response.text());
+            }
+          }, cardId);
+
+          await expect(pageB.locator("#cards-list")).not.toContainText("Test Card 1", { timeout: 1500 });
+          await expect(pageB.locator("#columns-list")).toContainText("done (1)");
+        } finally {
+          await pageA.close();
+          await pageB.close();
+        }
+      },
+    });
+  });
+
   test("page loads and displays project name", async ({ page }) => {
     await withKanbanProject({
       fn: async (tmpDir, port) => {

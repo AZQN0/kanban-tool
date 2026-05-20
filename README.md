@@ -8,7 +8,7 @@ A Rust-based kanban board system designed for coding agents, with a CLI, a termi
 - **Markdown card exports** — Each card is exported as a human-readable markdown file with YAML frontmatter
 - **SQLite persistence** — Fast, portable, zero-config database
 - **Terminal UI (TUI)** — Full keyboard-driven TUI with 3-panel layout (columns / cards / detail)
-- **WebUI** — Browser-based kanban board with REST API, SSE live updates, keyboard navigation, drag-and-drop, modals, and search
+- **WebUI** — Browser-based single-project kanban board with REST API, SSE live updates, keyboard navigation, drag-and-drop, modals, and search
 - **MCP Server** — 8 tools for programmatic card management (create, get, update, delete, list, move, search, manage)
 - **CLI** — All operations available from the command line
 - **Filters** — List cards by column, priority, or labels
@@ -151,7 +151,7 @@ Launch the terminal UI (TUI). Run from within an initialized project directory.
 ### `kanban web-ui [OPTIONS]`
 
 Launch the WebUI in a browser. Requires build with `--features webui`.
-The WebUI binds to `127.0.0.1` by default. Non-loopback bind addresses are refused unless you pass `--allow-remote`, because the WebUI exposes unauthenticated mutating API routes.
+The WebUI serves the initialized project in the current working directory. It does not switch projects in-browser; run a separate `kanban web-ui` process from another project directory to view that board. The WebUI binds to `127.0.0.1` by default. Non-loopback bind addresses are refused unless you pass `--allow-remote`, because the WebUI exposes unauthenticated mutating API routes.
 
 ```bash
 kanban web-ui                                      # Default: http://127.0.0.1:9876
@@ -210,7 +210,7 @@ Start with `kanban board` (run from within an initialized project).
 
 ## WebUI
 
-Start with `kanban web-ui` (requires `--features webui`). Opens a browser-based kanban board with live updates via Server-Sent Events. It is local-only by default; pass `--allow-remote` only when you intentionally want to expose it beyond loopback.
+Start with `kanban web-ui` from an initialized project directory (requires `--features webui`). Opens a browser-based kanban board for that single project, with live updates via Server-Sent Events. It is local-only by default; pass `--allow-remote` only when you intentionally want to expose it beyond loopback.
 
 ### Layout
 
@@ -232,7 +232,8 @@ Start with `kanban web-ui` (requires `--features webui`). Opens a browser-based 
 
 ### WebUI Features
 
-- **Live updates** — Changes from other clients appear in real-time via SSE
+- **Single-project view** — The running server exposes the board from its current project directory
+- **Live updates** — Changes from other WebUI clients connected to the same server appear in real-time via SSE
 - **Keyboard navigation** — Full keyboard-driven interaction (move `m`, delete `D`, edit `e`, search `/`)
 - **Modal dialogs** — Move, delete, and edit operations via popups
 - **Search** — Press `/` to search cards by title/description
@@ -258,7 +259,7 @@ When running, the WebUI exposes a REST API:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/boards` | List all boards |
+| `GET` | `/api/boards` | List boards stored in the current project's database |
 | `GET` | `/api/cards` | Get all cards grouped by column |
 | `GET` | `/api/cards/:id` | Get a single card |
 | `POST` | `/api/cards` | Create a new card |
