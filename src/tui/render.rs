@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, Focus, Mode};
+use super::app::{App, EditorField, Focus, Mode};
 
 /// Render the full TUI.
 pub fn render(frame: &mut Frame, app: &App) {
@@ -76,6 +76,10 @@ fn render_main_area(frame: &mut Frame, app: &App, area: Rect) {
     render_columns(frame, app, chunks[0]);
     render_cards(frame, app, chunks[1]);
     render_detail(frame, app, chunks[2]);
+
+    if app.mode == Mode::Editing {
+        render_editor(frame, app, area);
+    }
 }
 
 /// Render the columns panel (left).
@@ -217,13 +221,13 @@ fn render_bottom_statusbar(frame: &mut Frame, app: &App, area: Rect) {
         format!(" {} | ERROR: {}", focus_indicator, error)
     } else if app.message.is_some() {
         format!(
-            " {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | / Search | q Quit | {}",
+            " {} | ↑↓ Navigate | Enter Focus | e Edit | m Move | D Delete | / Search | q Quit | {}",
             focus_indicator,
             app.message.as_ref().unwrap_or(&String::new())
         )
     } else {
         format!(
-            " {} | ↑↓ Navigate | Enter Focus | m Move | D Delete | / Search | q Quit",
+            " {} | ↑↓ Navigate | Enter Focus | e Edit | m Move | D Delete | / Search | q Quit",
             focus_indicator
         )
     };
@@ -239,6 +243,45 @@ fn render_bottom_statusbar(frame: &mut Frame, app: &App, area: Rect) {
         .alignment(Alignment::Left);
 
     frame.render_widget(paragraph, area);
+}
+
+fn render_editor(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(editor) = &app.editor else {
+        return;
+    };
+
+    let popup_area = center_rect(area, 72, 14);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Edit Card ")
+        .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+
+    let field_line = |field: EditorField, label: &str, value: String| {
+        let marker = if editor.field == field { ">" } else { " " };
+        Line::from(format!("{marker} {label:<12} {value}"))
+    };
+
+    let description = truncate_multiline(&editor.description, 52);
+    let labels = truncate(&editor.labels_input, 52);
+    let title = truncate(&editor.title, 52);
+    let priority = editor.priority.to_string();
+
+    let lines = vec![
+        field_line(EditorField::Title, "Title", title),
+        field_line(EditorField::Description, "Description", description),
+        field_line(EditorField::Priority, "Priority", priority),
+        field_line(EditorField::Labels, "Labels", labels),
+        Line::from(""),
+        Line::from(" Tab/Shift+Tab Field  ←/→ Priority  Enter Save"),
+        Line::from(" Ctrl+S Save  Esc Cancel"),
+    ];
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .alignment(Alignment::Left)
+        .style(Style::default().fg(Color::White).bg(Color::Black));
+
+    frame.render_widget(paragraph, popup_area);
 }
 
 /// Render the move column popup.
@@ -368,6 +411,10 @@ fn truncate(s: &str, max_width: usize) -> String {
     }
 }
 
+fn truncate_multiline(s: &str, max_width: usize) -> String {
+    truncate(&s.replace('\n', " / "), max_width)
+}
+
 /// Center a rectangle within another.
 fn center_rect(r: Rect, width: u16, height: u16) -> Rect {
     let x = r.x + r.width.saturating_sub(width).saturating_div(2);
@@ -406,6 +453,7 @@ mod tests {
             detail_card: None,
             search_query: String::new(),
             search_results: vec![],
+            editor: None,
             message: None,
             message_time: std::time::Instant::now(),
         }
@@ -434,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn render_bottom_statusbar_does_not_advertise_markdown_editing() {
+    fn render_bottom_statusbar_advertises_card_editor_not_markdown_editing() {
         let backend = TestBackend::new(100, 12);
         let mut terminal = Terminal::new(backend).unwrap();
         let app = test_app();
@@ -449,16 +497,67 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
         assert!(
-            !rendered.contains("Edit"),
-            "rendered buffer advertised editing: {rendered}"
-        );
-        assert!(
-            !rendered.contains("e Edit"),
-            "rendered buffer advertised e key editing: {rendered}"
+            rendered.contains("e Edit"),
+            "rendered buffer did not advertise card editing: {rendered}"
         );
         assert!(
             !rendered.contains("P Project"),
             "rendered buffer advertised unsupported project switching: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_editor_modal_displays_editable_fields_and_help() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = test_app();
+        app.mode = Mode::Editing;
+        app.editor = Some(super::super::app::EditorState {
+            card_id: "card-1".to_string(),
+            field: super::super::app::EditorField::Title,
+            title: "Edit me".to_string(),
+            description: "Description text".to_string(),
+            priority: Priority::High,
+            labels_input: "ui, audit".to_string(),
+            dirty: false,
+        });
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            rendered.contains("Edit Card"),
+            "missing editor title: {rendered}"
+        );
+        assert!(
+            rendered.contains("Title"),
+            "missing title field: {rendered}"
+        );
+        assert!(
+            rendered.contains("Description"),
+            "missing description field: {rendered}"
+        );
+        assert!(
+            rendered.contains("Priority"),
+            "missing priority field: {rendered}"
+        );
+        assert!(
+            rendered.contains("Labels"),
+            "missing labels field: {rendered}"
+        );
+        assert!(
+            rendered.contains("Ctrl+S Save"),
+            "missing save hint: {rendered}"
+        );
+        assert!(
+            rendered.contains("Esc Cancel"),
+            "missing cancel hint: {rendered}"
         );
     }
 }

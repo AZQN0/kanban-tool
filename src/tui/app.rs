@@ -4,10 +4,12 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event as CEvent, KeyEventKind};
 use std::path::PathBuf;
 
-use crate::board::card::Card;
+use crate::board::card::{Card, Priority};
 use crate::board::store::{CardSort, Store};
 use crate::kanban::config::{cards_dir, db_path};
-use crate::persistence::{delete_card_with_markdown, move_card_with_markdown};
+use crate::persistence::{
+    delete_card_with_markdown, move_card_with_markdown, update_card_with_markdown, CardPatch,
+};
 
 use super::events;
 use super::render;
@@ -27,6 +29,26 @@ pub enum Mode {
     Moving,
     Searching,
     SearchingResult,
+    Editing,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditorField {
+    Title,
+    Description,
+    Priority,
+    Labels,
+}
+
+#[derive(Debug, Clone)]
+pub struct EditorState {
+    pub card_id: String,
+    pub field: EditorField,
+    pub title: String,
+    pub description: String,
+    pub priority: Priority,
+    pub labels_input: String,
+    pub dirty: bool,
 }
 
 /// The main application state.
@@ -54,6 +76,9 @@ pub struct App {
     // Search state
     pub search_query: String,
     pub search_results: Vec<Card>,
+
+    // Editor state
+    pub editor: Option<EditorState>,
 
     // Message display (temporary)
     pub message: Option<String>,
@@ -98,6 +123,7 @@ impl App {
             detail_card: None,
             search_query: String::new(),
             search_results: Vec::new(),
+            editor: None,
             message: None,
             message_time: std::time::Instant::now(),
         })
@@ -303,6 +329,153 @@ impl App {
         Ok(())
     }
 
+    pub fn start_editing_selected_card(&mut self) -> Result<()> {
+        let cards = self.current_cards();
+        let card = cards
+            .get(self.card_selection)
+            .ok_or_else(|| anyhow::anyhow!("No card selected to edit"))?;
+
+        self.editor = Some(EditorState {
+            card_id: card.id.clone(),
+            field: EditorField::Title,
+            title: card.title.clone(),
+            description: card.description.clone(),
+            priority: card.priority.clone(),
+            labels_input: card.labels.join(", "),
+            dirty: false,
+        });
+        self.mode = Mode::Editing;
+        self.error = None;
+        Ok(())
+    }
+
+    pub fn cancel_editor(&mut self) {
+        self.editor = None;
+        self.mode = Mode::Normal;
+        self.error = None;
+    }
+
+    pub fn editor_next_field(&mut self, forward: bool) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        editor.field = match (forward, &editor.field) {
+            (true, EditorField::Title) => EditorField::Description,
+            (true, EditorField::Description) => EditorField::Priority,
+            (true, EditorField::Priority) => EditorField::Labels,
+            (true, EditorField::Labels) => EditorField::Title,
+            (false, EditorField::Title) => EditorField::Labels,
+            (false, EditorField::Description) => EditorField::Title,
+            (false, EditorField::Priority) => EditorField::Description,
+            (false, EditorField::Labels) => EditorField::Priority,
+        };
+    }
+
+    pub fn editor_insert_char(&mut self, ch: char) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        match editor.field {
+            EditorField::Title => editor.title.push(ch),
+            EditorField::Description => editor.description.push(ch),
+            EditorField::Labels => editor.labels_input.push(ch),
+            EditorField::Priority => {}
+        }
+        editor.dirty = true;
+    }
+
+    pub fn editor_backspace(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        match editor.field {
+            EditorField::Title => {
+                editor.title.pop();
+            }
+            EditorField::Description => {
+                editor.description.pop();
+            }
+            EditorField::Labels => {
+                editor.labels_input.pop();
+            }
+            EditorField::Priority => {}
+        }
+        editor.dirty = true;
+    }
+
+    pub fn editor_cycle_priority(&mut self, forward: bool) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        if editor.field != EditorField::Priority {
+            return;
+        }
+
+        editor.priority = match (forward, editor.priority.clone()) {
+            (true, Priority::Backlog) => Priority::Low,
+            (true, Priority::Low) => Priority::Medium,
+            (true, Priority::Medium) => Priority::High,
+            (true, Priority::High) => Priority::Urgent,
+            (true, Priority::Urgent) => Priority::Backlog,
+            (false, Priority::Backlog) => Priority::Urgent,
+            (false, Priority::Low) => Priority::Backlog,
+            (false, Priority::Medium) => Priority::Low,
+            (false, Priority::High) => Priority::Medium,
+            (false, Priority::Urgent) => Priority::High,
+        };
+        editor.dirty = true;
+    }
+
+    pub fn save_editor(&mut self) -> Result<()> {
+        let editor = self
+            .editor
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("No editor is open"))?;
+
+        let title = editor.title.trim().to_string();
+        if title.is_empty() {
+            return Err(anyhow::anyhow!("Title cannot be empty"));
+        }
+
+        let db = db_path(&self.project_path);
+        let mut store = Store::open(&db)?;
+        let updated = update_card_with_markdown(
+            &mut store,
+            &editor.card_id,
+            CardPatch {
+                title: Some(title),
+                description: Some(editor.description),
+                column_id: None,
+                priority: Some(editor.priority),
+                labels: Some(parse_labels_input(&editor.labels_input)),
+            },
+            &cards_dir(&self.project_path),
+        )?;
+
+        self.reload_all()?;
+        self.select_card_by_id(&updated.id);
+        self.mode = Mode::Normal;
+        self.editor = None;
+        self.error = None;
+        self.set_message(format!("Updated '{}'", updated.title));
+        Ok(())
+    }
+
+    fn select_card_by_id(&mut self, card_id: &str) {
+        for (column_idx, column) in self.columns.iter().enumerate() {
+            if let Some(card_idx) = column.cards.iter().position(|card| card.id == card_id) {
+                self.current_column_idx = column_idx;
+                self.card_selection = card_idx;
+                self.detail_card = column.cards.get(card_idx).cloned();
+                return;
+            }
+        }
+    }
+
     /// Display a temporary message.
     pub fn set_message(&mut self, msg: String) {
         self.message = Some(msg);
@@ -313,6 +486,15 @@ impl App {
     pub fn message_expired(&self) -> bool {
         self.message_time.elapsed().as_secs() > 3
     }
+}
+
+fn parse_labels_input(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 /// Run the TUI. Returns when the user quits.
@@ -370,4 +552,137 @@ pub fn run(project_path: PathBuf) -> Result<()> {
 
     ratatui::restore();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kanban::config::{cards_dir, db_path};
+    use crate::kanban::init::init_board;
+    use crate::persistence::create_card_with_markdown;
+    use std::fs;
+
+    struct Fixture {
+        project: PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let project =
+                std::env::temp_dir().join(format!("kanban_tui_editor_{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&project).unwrap();
+            init_board(&project).unwrap();
+            Self { project }
+        }
+
+        fn create_card(&self, id: &str) -> Card {
+            let db = db_path(&self.project);
+            let mut store = Store::open(&db).unwrap();
+            let board = store
+                .get_board(self.project.to_string_lossy().as_ref())
+                .unwrap();
+            let column = board
+                .columns
+                .iter()
+                .find(|column| column.name == "backlog")
+                .unwrap();
+            let mut card = Card::new(
+                &board.id,
+                &column.id,
+                "Original title",
+                "Original description",
+                Priority::Medium,
+                vec!["old".to_string()],
+                PathBuf::from(format!("{id}.md")),
+            );
+            card.id = id.to_string();
+            create_card_with_markdown(&mut store, &card, &cards_dir(&self.project)).unwrap();
+            card
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.project);
+        }
+    }
+
+    #[test]
+    fn start_editing_selected_card_copies_card_fields() {
+        let fixture = Fixture::new();
+        let card = fixture.create_card("edit-copy");
+        let mut app = App::new(fixture.project.clone()).unwrap();
+        app.card_selection = app
+            .current_cards()
+            .iter()
+            .position(|c| c.id == card.id)
+            .unwrap();
+
+        app.start_editing_selected_card().unwrap();
+
+        let editor = app.editor.as_ref().unwrap();
+        assert_eq!(app.mode, Mode::Editing);
+        assert_eq!(editor.card_id, "edit-copy");
+        assert_eq!(editor.title, "Original title");
+        assert_eq!(editor.description, "Original description");
+        assert_eq!(editor.priority, Priority::Medium);
+        assert_eq!(editor.labels_input, "old");
+    }
+
+    #[test]
+    fn save_editor_updates_sqlite_and_markdown_export() {
+        let fixture = Fixture::new();
+        let card = fixture.create_card("edit-save");
+        let mut app = App::new(fixture.project.clone()).unwrap();
+        app.card_selection = app
+            .current_cards()
+            .iter()
+            .position(|c| c.id == card.id)
+            .unwrap();
+        app.start_editing_selected_card().unwrap();
+
+        let editor = app.editor.as_mut().unwrap();
+        editor.title = "Updated title".to_string();
+        editor.description = "Updated description".to_string();
+        editor.priority = Priority::High;
+        editor.labels_input = "new, ui".to_string();
+
+        app.save_editor().unwrap();
+
+        let store = Store::open(&db_path(&fixture.project)).unwrap();
+        let stored = store.get_card("edit-save").unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.editor.is_none());
+        assert_eq!(stored.title, "Updated title");
+        assert_eq!(stored.description, "Updated description");
+        assert_eq!(stored.priority, Priority::High);
+        assert_eq!(stored.labels, vec!["new".to_string(), "ui".to_string()]);
+
+        let export = fs::read_to_string(cards_dir(&fixture.project).join("edit-save.md")).unwrap();
+        assert!(export.contains("title: \"Updated title\""));
+        assert!(export.contains("Updated description"));
+    }
+
+    #[test]
+    fn save_editor_rejects_empty_title_without_persisting() {
+        let fixture = Fixture::new();
+        let card = fixture.create_card("edit-empty-title");
+        let mut app = App::new(fixture.project.clone()).unwrap();
+        app.card_selection = app
+            .current_cards()
+            .iter()
+            .position(|c| c.id == card.id)
+            .unwrap();
+        app.start_editing_selected_card().unwrap();
+        app.editor.as_mut().unwrap().title = "   ".to_string();
+
+        let err = app.save_editor().unwrap_err();
+
+        let store = Store::open(&db_path(&fixture.project)).unwrap();
+        let stored = store.get_card("edit-empty-title").unwrap();
+        assert_eq!(app.mode, Mode::Editing);
+        assert!(app.editor.is_some());
+        assert!(err.to_string().contains("Title cannot be empty"));
+        assert_eq!(stored.title, "Original title");
+    }
 }

@@ -206,9 +206,12 @@ Start with `kanban board` (run from within an initialized project).
 | `Enter` | Focus selected card in detail / Unfocus |
 | `Esc` | Cancel mode / Unfocus detail |
 | `m` | Move card (popup: `b`acklog, `t`odo, `i`n_progress, `r`eview, `d`one) |
+| `e` | Edit selected card fields |
 | `D` | Delete selected card |
 | `/` | Start search |
 | `q` | Quit |
+
+The TUI editor updates SQLite through the same persistence path as the CLI, WebUI, and MCP server, then refreshes the synchronized markdown export. It does not edit markdown files directly.
 
 ## WebUI
 
@@ -340,7 +343,7 @@ This project ships with an AI agent skill (`skills/kanban/SKILL.md`) covering al
 - The WebUI is single-project per running server. Start one `kanban web-ui` process per project directory.
 - WebUI SSE updates are broadcast between clients connected to the same server after WebUI API mutations. The WebUI does not currently watch SQLite for CLI or MCP changes.
 - The WebUI has no authentication. It binds to loopback by default; non-loopback binds require explicit `--allow-remote`.
-- The TUI supports navigation, move, delete, and search for the current project. Start it from another initialized project directory to view that board. Edit card fields through the CLI, WebUI, or MCP API.
+- The TUI supports navigation, edit, move, delete, and search for the current project. Start it from another initialized project directory to view that board. TUI edits update SQLite and refresh markdown exports; direct markdown edits are still not imported.
 
 ## Testing
 

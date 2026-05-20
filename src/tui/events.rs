@@ -1,12 +1,54 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
-use super::app::{App, Focus, Mode};
+use super::app::{App, EditorField, Focus, Mode};
 
 /// Handle a key event and mutate the app state.
 /// Returns Ok(()) on success, Err on error (e.g., DB failure).
 pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Result<()> {
     let key_code = key.code;
     let modifiers = key.modifiers;
+
+    if app.mode == Mode::Editing {
+        match key_code {
+            KeyCode::Esc => {
+                app.cancel_editor();
+            }
+            KeyCode::Char('s') if modifiers == KeyModifiers::CONTROL => {
+                app.save_editor()?;
+            }
+            KeyCode::Tab | KeyCode::Down => {
+                app.editor_next_field(true);
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                app.editor_next_field(false);
+            }
+            KeyCode::Left => {
+                app.editor_cycle_priority(false);
+            }
+            KeyCode::Right => {
+                app.editor_cycle_priority(true);
+            }
+            KeyCode::Backspace => {
+                app.editor_backspace();
+            }
+            KeyCode::Enter => {
+                if app
+                    .editor
+                    .as_ref()
+                    .is_some_and(|editor| editor.field == EditorField::Description)
+                {
+                    app.editor_insert_char('\n');
+                } else {
+                    app.save_editor()?;
+                }
+            }
+            KeyCode::Char(c) if modifiers == KeyModifiers::NONE => {
+                app.editor_insert_char(c);
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
 
     // If in search mode, handle search input
     if app.mode == Mode::Searching {
@@ -131,6 +173,11 @@ pub fn handle_key(key: crossterm::event::KeyEvent, app: &mut App) -> anyhow::Res
             app.delete_card()?;
         }
 
+        // e: edit selected card fields
+        KeyCode::Char('e') => {
+            app.start_editing_selected_card()?;
+        }
+
         // /: start search
         KeyCode::Char('/') => {
             app.search_query.clear();
@@ -180,13 +227,14 @@ mod tests {
             detail_card: None,
             search_query: String::new(),
             search_results: vec![],
+            editor: None,
             message: None,
             message_time: std::time::Instant::now(),
         }
     }
 
     #[test]
-    fn e_key_does_not_open_markdown_export_editor() {
+    fn e_key_opens_card_editor() {
         let mut app = test_app_with_card();
 
         handle_key(
@@ -195,10 +243,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_ne!(
-            app.message.as_deref(),
-            Some("Editor opened. Press any key to continue...")
-        );
+        assert_eq!(app.mode, Mode::Editing);
+        assert_eq!(app.editor.as_ref().unwrap().title, "Test card");
     }
 
     #[test]
@@ -222,5 +268,62 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn editor_escape_cancels_without_changing_title() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+        app.editor.as_mut().unwrap().title = "Changed".to_string();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.editor.is_none());
+        assert_eq!(app.current_cards()[0].title, "Test card");
+    }
+
+    #[test]
+    fn editor_text_input_updates_active_field() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.editor.as_ref().unwrap().title, "Test card!");
+    }
+
+    #[test]
+    fn editor_tab_and_arrows_change_fields_and_priority() {
+        let mut app = test_app_with_card();
+        app.start_editing_selected_card().unwrap();
+
+        for _ in 0..2 {
+            handle_key(
+                crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                &mut app,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            app.editor.as_ref().unwrap().field,
+            super::super::app::EditorField::Priority
+        );
+
+        handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut app,
+        )
+        .unwrap();
+
+        assert_eq!(app.editor.as_ref().unwrap().priority, Priority::High);
     }
 }
