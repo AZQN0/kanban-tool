@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::board::card::{Card, Priority};
 use crate::board::store::Store;
-use crate::kanban::config::{cards_dir, db_path, is_initialized};
+use crate::kanban::config::{board_project_path, cards_dir, db_path, is_initialized};
 use crate::persistence::{card_export_file, create_card_with_markdown};
 use crate::CreateArgs;
 
@@ -26,15 +26,16 @@ pub fn create(args: &CreateArgs) -> Result<()> {
         (store, board, cards_dir(p))
     } else {
         let cwd = std::env::current_dir()?;
-        if !is_initialized(&cwd) {
+        let project_path = board_project_path(&cwd)?;
+        if !is_initialized(&project_path) {
             anyhow::bail!("No project specified and no kanban board in current directory. Run `kanban init` first.");
         }
-        let db = db_path(&cwd);
+        let db = db_path(&project_path);
         let store = Store::open(&db).context(format!("Failed to open database at {:?}", db))?;
         let board = store
-            .get_board(cwd.to_string_lossy().as_ref())
-            .context(format!("Failed to open board at {:?}", cwd))?;
-        (store, board, cards_dir(&cwd))
+            .get_board(project_path.to_string_lossy().as_ref())
+            .context(format!("Failed to open board at {:?}", project_path))?;
+        (store, board, cards_dir(&project_path))
     };
 
     // Resolve column
@@ -102,8 +103,8 @@ pub fn create(args: &CreateArgs) -> Result<()> {
 fn resolve_project_path(project: &Option<String>) -> Result<Option<PathBuf>> {
     match project {
         Some(p) => {
-            let path =
-                std::fs::canonicalize(p).context(format!("Cannot resolve project path: {}", p))?;
+            let path = board_project_path(std::path::Path::new(p))
+                .context(format!("Cannot resolve project path: {}", p))?;
             Ok(Some(path))
         }
         None => Ok(None),

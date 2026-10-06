@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 use crate::board::store::Store;
-use crate::kanban::config::{db_path, is_initialized};
+use crate::kanban::config::{board_project_path, db_path, is_initialized};
 use crate::GetArgs;
 
 /// Get a card by ID and print its full details.
@@ -74,8 +74,9 @@ pub fn get(args: &GetArgs) -> Result<()> {
 /// Try to find a .kanban directory — start from cwd, walk up the tree.
 fn resolve_project_path() -> Result<Option<PathBuf>> {
     let cwd = std::env::current_dir()?;
-    if is_initialized(&cwd) {
-        return Ok(Some(cwd));
+    let board_path = board_project_path(&cwd)?;
+    if is_initialized(&board_path) {
+        return Ok(Some(board_path));
     }
     for ancestor in cwd.ancestors().skip(1) {
         if is_initialized(ancestor) {

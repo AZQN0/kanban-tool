@@ -2,14 +2,14 @@ use anyhow::{Context, Result};
 
 use crate::board::card::Card;
 use crate::board::store::Store;
-use crate::kanban::config::{db_path, is_initialized};
+use crate::kanban::config::{board_project_path, db_path, is_initialized};
 use crate::SearchArgs;
 
 /// Search cards by query string across title and description.
 pub fn search(args: &SearchArgs) -> Result<()> {
     let project_path = if let Some(ref p) = args.project {
-        let path =
-            std::fs::canonicalize(p).context(format!("Cannot resolve project path: {}", p))?;
+        let path = board_project_path(std::path::Path::new(p))
+            .context(format!("Cannot resolve project path: {}", p))?;
         if !is_initialized(&path) {
             anyhow::bail!(
                 "Project at {:?} is not initialized. Run `kanban init` first.",
@@ -20,10 +20,11 @@ pub fn search(args: &SearchArgs) -> Result<()> {
     } else {
         // Search current directory
         let cwd = std::env::current_dir()?;
-        if !is_initialized(&cwd) {
+        let project_path = board_project_path(&cwd)?;
+        if !is_initialized(&project_path) {
             anyhow::bail!("No project specified and no kanban board in current directory.");
         }
-        Some(cwd)
+        Some(project_path)
     };
 
     let db = db_path(project_path.as_ref().unwrap());

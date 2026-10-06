@@ -40,10 +40,59 @@ impl Drop for TestProject {
 fn run(args: &[&str], cwd: Option<&Path>) -> Output {
     let mut command = Command::new(kanban_bin());
     command.args(args);
+    command.env_remove("KANBAN_WORKTREE_LOCAL");
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
     command.output().unwrap()
+}
+
+fn run_with_env(args: &[&str], cwd: Option<&Path>, env: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(kanban_bin());
+    command.args(args);
+    command.env_remove("KANBAN_WORKTREE_LOCAL");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    command.output().unwrap()
+}
+
+fn run_git(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert_success(output);
+}
+
+fn init_git_repo_with_linked_worktree(project: &TestProject) -> PathBuf {
+    run_git(&project.path, &["init"]);
+    run_git(&project.path, &["config", "user.email", "test@example.com"]);
+    run_git(&project.path, &["config", "user.name", "Test User"]);
+    fs::write(project.path.join("README.md"), "test\n").unwrap();
+    run_git(&project.path, &["add", "README.md"]);
+    run_git(&project.path, &["commit", "-m", "initial"]);
+
+    let linked = project.path.with_file_name(format!(
+        "{}_linked",
+        project.path.file_name().unwrap().to_string_lossy()
+    ));
+    let linked_arg = linked.to_string_lossy().to_string();
+    run_git(
+        &project.path,
+        &[
+            "worktree",
+            "add",
+            &linked_arg,
+            "-b",
+            "feature/worktree-test",
+        ],
+    );
+    linked
 }
 
 fn assert_success(output: Output) -> String {
@@ -187,6 +236,47 @@ fn cli_project_flag_keeps_boards_isolated() {
         !second_search.contains("First board only"),
         "{second_search}"
     );
+}
+
+#[test]
+fn cli_uses_main_board_from_linked_git_worktree_by_default() {
+    let project = TestProject::new("worktree_shared");
+    let linked = init_git_repo_with_linked_worktree(&project);
+    let project_path = project.path_arg();
+
+    assert_success(run(&["init", &project_path], None));
+    create_card(&project, "Shared from main checkout", "shared");
+
+    let list = assert_success(run(&["list"], Some(&linked)));
+
+    assert!(list.contains("Shared from main checkout"), "{list}");
+    assert!(
+        !linked.join(".kanban").exists(),
+        "linked worktree should not get its own board by default"
+    );
+    let _ = fs::remove_dir_all(linked);
+}
+
+#[test]
+fn cli_can_keep_linked_git_worktree_board_local_with_env_escape_hatch() {
+    let project = TestProject::new("worktree_local");
+    let linked = init_git_repo_with_linked_worktree(&project);
+    let project_path = project.path_arg();
+
+    assert_success(run(&["init", &project_path], None));
+    create_card(&project, "Main board only", "shared");
+
+    let list = assert_failure(run_with_env(
+        &["list"],
+        Some(&linked),
+        &[("KANBAN_WORKTREE_LOCAL", "1")],
+    ));
+
+    assert!(
+        list.contains("No project specified and no kanban board in current directory"),
+        "{list}"
+    );
+    let _ = fs::remove_dir_all(linked);
 }
 
 #[test]

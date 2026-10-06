@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::board::store::Store;
 use crate::board::{column::Column, Board};
-use crate::kanban::config::{cards_dir, columns_dir, db_path, is_initialized};
+use crate::kanban::config::{board_project_path, cards_dir, columns_dir, db_path, is_initialized};
 
 /// Initialize a new kanban board for a project at the given path.
 ///
@@ -17,7 +17,7 @@ use crate::kanban::config::{cards_dir, columns_dir, db_path, is_initialized};
 /// 6. Return the Board struct
 pub fn init_board(project_path: &Path) -> Result<Board> {
     let project_path =
-        fs::canonicalize(project_path).context("Failed to canonicalize project path")?;
+        board_project_path(project_path).context("Failed to resolve project path")?;
 
     // Check if already initialized
     if is_initialized(&project_path) {

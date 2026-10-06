@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::board::card::Card;
 use crate::board::store::{CardSort, Store};
-use crate::kanban::config::{db_path, is_initialized};
+use crate::kanban::config::{board_project_path, db_path, is_initialized};
 use crate::ListArgs;
 
 /// List cards, optionally filtered by column, priority, labels, or project.
@@ -21,10 +21,11 @@ pub fn list(args: &ListArgs) -> Result<()> {
         None => {
             // No project specified — list from current directory if initialized
             let cwd = std::env::current_dir()?;
-            if !is_initialized(&cwd) {
+            let project_path = board_project_path(&cwd)?;
+            if !is_initialized(&project_path) {
                 anyhow::bail!("No project specified and no kanban board in current directory");
             }
-            cwd
+            project_path
         }
     };
 
@@ -85,8 +86,8 @@ fn filter_cards(
 fn resolve_project_path(project: &Option<String>) -> Result<Option<PathBuf>> {
     match project {
         Some(p) => {
-            let path =
-                std::fs::canonicalize(p).context(format!("Cannot resolve project path: {}", p))?;
+            let path = board_project_path(std::path::Path::new(p))
+                .context(format!("Cannot resolve project path: {}", p))?;
             Ok(Some(path))
         }
         None => Ok(None),

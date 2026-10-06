@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::board::store::Store;
 use crate::board::Board;
-use crate::kanban::config::{db_path, is_initialized};
+use crate::kanban::config::{board_project_path, db_path, is_initialized};
 
 /// Manages board discovery and database access for kanban projects.
 ///
@@ -34,7 +34,7 @@ impl BoardManager {
     /// Returns `Some(board)` if the project is initialized with a kanban board,
     /// `None` if there is no `.kanban/` directory or the project is not in the database.
     pub fn find_board(&self, project_path: &Path) -> Result<Option<Board>> {
-        let project_path = canonicalize_or_identity(project_path)?;
+        let project_path = board_project_path(project_path)?;
 
         if !is_initialized(&project_path) {
             return Ok(None);
@@ -78,7 +78,7 @@ impl BoardManager {
     ///
     /// Convenience wrapper that delegates to `crate::kanban::init::init_board`.
     pub fn init_board(&self, project_path: &Path) -> Result<Board> {
-        crate::kanban::init::init_board(project_path)
+        crate::kanban::init::init_board(&board_project_path(project_path)?)
     }
 
     /// Resolve a project path to a canonical board manager.
@@ -86,18 +86,13 @@ impl BoardManager {
     /// If the project path contains a `.kanban/` directory, this creates a
     /// `BoardManager` pointing at that database. Otherwise, it returns `None`.
     pub fn for_project(project_path: &Path) -> Result<Option<BoardManager>> {
-        let project_path = canonicalize_or_identity(project_path)?;
+        let project_path = board_project_path(project_path)?;
         if !is_initialized(&project_path) {
             return Ok(None);
         }
         let db = db_path(&project_path);
         BoardManager::new(db).map(Some)
     }
-}
-
-/// Try to canonicalize a path; fall back to the original if canonicalization fails.
-fn canonicalize_or_identity(path: &Path) -> Result<PathBuf> {
-    std::fs::canonicalize(path).map_err(|e| anyhow!("Failed to resolve path {:?}: {}", path, e))
 }
 
 #[cfg(test)]

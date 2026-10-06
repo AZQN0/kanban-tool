@@ -129,8 +129,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Init { path } => {
-            let project_path =
-                std::fs::canonicalize(&path).context(format!("Cannot resolve path: {}", path))?;
+            let project_path = kanban::config::board_project_path(std::path::Path::new(&path))
+                .context(format!("Cannot resolve path: {}", path))?;
             let board = kanban::init::init_board(&project_path)?;
             println!("Initialized kanban board at: {}", project_path.display());
             println!("  Board ID: {}", board.id);
@@ -166,8 +166,8 @@ fn main() -> Result<()> {
             cli::delete::delete(&args)?;
         }
         Commands::Board => {
-            let project_path =
-                std::fs::canonicalize(".").context("Cannot resolve current directory")?;
+            let project_path = kanban::config::board_project_path(std::path::Path::new("."))
+                .context("Cannot resolve current directory")?;
             tui::app::run(project_path)?;
         }
         Commands::WebUI {
@@ -179,8 +179,8 @@ fn main() -> Result<()> {
 
             #[cfg(feature = "webui")]
             {
-                let project_path =
-                    std::fs::canonicalize(".").context("Cannot resolve current directory")?;
+                let project_path = kanban::config::board_project_path(std::path::Path::new("."))
+                    .context("Cannot resolve current directory")?;
                 webui::server::run(project_path, &bind, port)?;
             }
             #[cfg(not(feature = "webui"))]

@@ -12,7 +12,7 @@ use crate::board::card::Card;
 use crate::board::card::Priority;
 use crate::board::column::Column;
 use crate::board::store::Store;
-use crate::kanban::config::{cards_dir, db_path, is_initialized};
+use crate::kanban::config::{board_project_path, cards_dir, db_path, is_initialized};
 use crate::kanban::init::init_board;
 use crate::persistence::{
     card_export_file, create_card_with_markdown, delete_card_with_markdown,
@@ -650,7 +650,7 @@ fn resolve_project(project: &Option<String>) -> Result<PathBuf, CallToolError> {
         })?,
         None => std::env::current_dir().map_err(|e| CallToolError::from_message(e.to_string()))?,
     };
-    Ok(path)
+    board_project_path(&path).map_err(|e| CallToolError::from_message(e.to_string()))
 }
 
 fn json_text_content<T: Serialize>(value: &T) -> Result<CallToolResult, CallToolError> {
